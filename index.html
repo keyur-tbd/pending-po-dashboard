@@ -49,6 +49,12 @@ body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--
 .topbar{height:56px;background:var(--surface-1);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 20px;flex:none}
 .topbar h1{font-size:15.5px;font-weight:650}
 .topbar .crumb{color:var(--muted);font-size:12px}
+.datastamp{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);white-space:nowrap;padding:4px 9px;border:1px solid var(--border);border-radius:999px}
+.datastamp .dot{width:6px;height:6px;border-radius:50%;background:var(--ok,#28a745);flex:none}
+.datastamp.stale{color:var(--warn,#b06a00);border-color:var(--warn,#b06a00)}
+.datastamp.stale .dot{background:var(--warn,#b06a00)}
+#refreshbtn.spinning svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .gsearch{margin-left:auto;position:relative}
 .gsearch input{width:280px;padding:7px 12px 7px 32px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--ink);font-size:13px;outline:none}
 .gsearch input:focus{border-color:var(--accent)}
@@ -181,6 +187,8 @@ svg text{font-family:inherit}
       <input id="gsearch" type="text" placeholder="Search PO, item, platform…  ( / )">
       <div class="gresults" id="gresults"></div>
     </div>
+    <div class="datastamp" id="datastamp" title="Data age"><span class="dot"></span><span id="dataage">loading</span></div>
+    <button class="iconbtn" id="refreshbtn" title="Refresh from Google Sheets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg></button>
     <button class="iconbtn" id="themebtn" title="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg></button>
     <div class="dropdown">
       <button class="iconbtn" id="bellbtn" title="Alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="badge" id="bellbadge"></span></button>
@@ -235,12 +243,22 @@ const DATA = await (async function loadData(){
     screen.innerHTML = '<div style="max-width:560px;line-height:1.5">'
       + '<b style="font-size:15px">' + title + '</b>'
       + '<div style="color:var(--ink-2);font-size:12.5px;margin-top:8px">' + detail + '</div>'
-      + '<div style="color:var(--muted);font-size:12px;margin-top:14px">' + hint + '</div></div>';
+      + '<div style="color:var(--muted);font-size:12px;margin-top:14px">' + hint + '</div>'
+      + '<button id="retrybtn" style="margin-top:16px;padding:7px 14px;border-radius:8px;'
+      + 'border:1px solid var(--border);background:var(--surface-1);color:var(--ink);'
+      + 'font-size:12.5px;cursor:pointer">Try again</button></div>';
+    const rb = document.getElementById('retrybtn');
+    if (rb) rb.addEventListener('click', () => { location.search = '?refresh=1'; });
   };
 
   let d;
   try {
-    const res = await fetch(DATA_ENDPOINT);
+    // A refresh click reloads the page with ?refresh=1, which we turn into
+    // ?fresh=1 on the API so the CDN cache is bypassed. Reloading rather than
+    // re-deriving in place means every view is rebuilt from the new data --
+    // no chance of a stale chart sitting next to a fresh table.
+    const wantsFresh = new URLSearchParams(location.search).get('refresh') === '1';
+    const res = await fetch(DATA_ENDPOINT + (wantsFresh ? '?fresh=1' : ''));
     d = await res.json();
     if (!res.ok) throw new Error(d.detail || d.error || ('Request failed (' + res.status + ')'));
   } catch (err) {
@@ -309,10 +327,39 @@ const DATA = await (async function loadData(){
     appointment: make(o => o.apptDate || 'Appointment Pending')
   };
 
-  /* ---- stamp the data age so a cached page is never mistaken for live ---- */
-  const crumb = document.querySelector('.topbar .crumb');
-  if (crumb && d.fetchedAt) {
-    crumb.textContent = 'Data as of ' + new Date(d.fetchedAt).toLocaleString('en-IN');
+  /* ---- data age indicator -------------------------------------------------
+     This deliberately does NOT write into #crumb: goView() rewrites that on
+     every navigation, so the timestamp would vanish the moment you clicked
+     anything. It gets its own element in the topbar instead. ---------------- */
+  if (wantsFresh) history.replaceState(null, '', location.pathname);
+
+  const stampEl = document.getElementById('datastamp');
+  const ageEl = document.getElementById('dataage');
+  const fetchedAt = d.fetchedAt ? new Date(d.fetchedAt) : null;
+
+  const paintAge = () => {
+    if (!ageEl || !fetchedAt) return;
+    const mins = Math.floor((Date.now() - fetchedAt.getTime()) / 60000);
+    ageEl.textContent = mins < 1 ? 'just now'
+      : mins < 60 ? mins + ' min ago'
+      : Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm ago';
+    if (stampEl) {
+      stampEl.classList.toggle('stale', mins >= 20);
+      stampEl.title = 'Sheet read at ' + fetchedAt.toLocaleString('en-IN')
+        + (mins >= 20 ? ' - click refresh for the latest' : '');
+    }
+  };
+  paintAge();
+  setInterval(paintAge, 30000);
+
+  const rbtn = document.getElementById('refreshbtn');
+  if (rbtn) {
+    rbtn.addEventListener('click', () => {
+      rbtn.classList.add('spinning');
+      rbtn.disabled = true;
+      if (ageEl) ageEl.textContent = 'refreshing';
+      location.search = '?refresh=1';
+    });
   }
 
   screen.remove();
