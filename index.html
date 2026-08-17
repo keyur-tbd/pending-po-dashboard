@@ -697,7 +697,11 @@ const COLS = [
   ['orderDate','PO date',1],['apptDate','Appointment',1],['apStatus','Appt status',1],['age','Age (d)',1],
   ['lines','Lines',1],['qty','Qty',1],['value','PO value',1],['custRef','Cust ref',0],['remark','Remark',1]
 ];
-const FS = {q:'', wh:'', plat:'', ap:'', cat:'', from:'', to:''};
+// oid  = Order ID (substring, case-insensitive)
+// ch   = raw Channel value from the sheet, e.g. BLINKIT_MUM (distinct from
+//        plat, which is the rolled-up platform: Blinkit, Swiggy, ...)
+// apd  = a specific appointment date, or the Appointment Pending bucket
+const FS = {q:'', oid:'', wh:'', plat:'', ch:'', ap:'', apd:'', cat:'', from:'', to:''};
 let SORT = {k:'value', dir:-1}, PAGE = 1, PER = 15, SEL = new Set();
 let visCols = new Set(COLS.filter(c=>c[2]).map(c=>c[0]));
 let savedViews = [{name:'High value first', fs:{...FS}, sort:{k:'value',dir:-1}},
@@ -706,8 +710,13 @@ let savedViews = [{name:'High value first', fs:{...FS}, sort:{k:'value',dir:-1}}
 function filteredOrders(){
   return ORDERS.filter(o => {
     if (FS.q){ const q=FS.q.toLowerCase(); if(!(o.orderId.toLowerCase().includes(q)||o.channel.toLowerCase().includes(q)||o.lines.some(l=>l.itemName.toLowerCase().includes(q)||l.item.toLowerCase().includes(q)))) return false; }
+    if (FS.oid && !o.orderId.toLowerCase().includes(FS.oid.toLowerCase())) return false;
     if (FS.wh && o.wh!==FS.wh) return false;
     if (FS.plat && o.platform!==FS.plat) return false;
+    if (FS.ch && o.channel!==FS.ch) return false;
+    // An appointment-date filter of 'Appointment Pending' must match POs with
+    // no date at all -- not POs whose date happens to equal that string.
+    if (FS.apd){ const key = o.apptDate || 'Appointment Pending'; if (key!==FS.apd) return false; }
     if (FS.ap && o.apStatus!==FS.ap) return false;
     if (FS.cat && !o.lines.some(l=>l.category===FS.cat)) return false;
     if (FS.from && o.oDate < new Date(FS.from)) return false;
@@ -717,17 +726,29 @@ function filteredOrders(){
 }
 function renderPOs(){
   const v = $('#view-pos');
-  const whs=[...new Set(ORDERS.map(o=>o.wh))], plats=[...new Set(ORDERS.map(o=>o.platform))], cats=[...new Set(DATA.poLines.map(l=>l.category))];
+  const whs=[...new Set(ORDERS.map(o=>o.wh))].sort(),
+        plats=[...new Set(ORDERS.map(o=>o.platform))].sort(),
+        chans=[...new Set(ORDERS.map(o=>o.channel))].filter(Boolean).sort(),
+        cats=[...new Set(DATA.poLines.map(l=>l.category))].sort(),
+        oids=[...new Set(ORDERS.map(o=>o.orderId))].sort();
+  // Appointment dates sorted chronologically, not as strings -- '2-08-2026'
+  // must not sort after '15-08-2026'. Pending is pinned to the top.
+  const apds=[...new Set(ORDERS.map(o=>o.apptDate).filter(Boolean))]
+        .sort((a,b)=>(pDMY(a)||0)-(pDMY(b)||0));
   v.innerHTML = `
-  <div class="note">Line-level workbench over the <b>Uni Commerce raw extract</b> in the sheet — ${ORDERS.length} POs / ${DATA.poLines.length} lines (AHM WH & KOLWH). The other warehouses appear in the sheet only as pivot totals; add their raw rows to the extract tab and they will show here too.</div>
+  <div class="note">Line-level workbench over <b>${esc(DATA._source?.tabs?.poLines || "the PO lines tab")}</b> — ${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines across ${whs.length} warehouse(s). Filters below apply to the table, the CSV export and the count shown under it.</div>
   <div class="toolbar">
-    <input type="text" id="f-q" placeholder="Search PO / item / channel…" style="width:210px" value="${esc(FS.q)}">
-    <select id="f-wh"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
-    <select id="f-plat"><option value="">All platforms</option>${plats.map(p=>`<option ${FS.plat===p?'selected':''}>${esc(p)}</option>`).join('')}</select>
-    <select id="f-ap"><option value="">Any appt status</option><option ${FS.ap==='Scheduled'?'selected':''}>Scheduled</option><option ${FS.ap==='Appointment Pending'?'selected':''}>Appointment Pending</option></select>
-    <select id="f-cat"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-    <input type="date" id="f-from" value="${FS.from}" title="PO date from"><input type="date" id="f-to" value="${FS.to}" title="PO date to">
-    <button class="btn ghost" id="f-clear">Clear</button>
+    <input type="text" id="f-q" placeholder="Search PO / item / channel…" style="width:190px" value="${esc(FS.q)}">
+    <input type="text" id="f-oid" list="oidlist" placeholder="Order ID" style="width:130px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
+    <datalist id="oidlist">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
+    <select id="f-wh" title="Warehouse"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
+    <select id="f-plat" title="Platform (rolled up)"><option value="">All platforms</option>${plats.map(p=>`<option ${FS.plat===p?'selected':''}>${esc(p)}</option>`).join('')}</select>
+    <select id="f-ch" title="Channel (raw value from the sheet)"><option value="">All channels</option>${chans.map(c=>`<option ${FS.ch===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <select id="f-apd" title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${apds.map(d=>`<option ${FS.apd===d?'selected':''}>${esc(d)}</option>`).join('')}</select>
+    <select id="f-ap" title="Appointment status"><option value="">Any appt status</option><option ${FS.ap==='Scheduled'?'selected':''}>Scheduled</option><option ${FS.ap==='Appointment Pending'?'selected':''}>Appointment Pending</option></select>
+    <select id="f-cat" title="Category"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <input type="date" id="f-from" value="${FS.from}" title="Order date from"><input type="date" id="f-to" value="${FS.to}" title="Order date to">
+    <button class="btn ghost" id="f-clear">Clear<span id="f-count"></span></button>
     <span class="spacer"></span>
     <div class="dropdown"><button class="btn" id="viewsbtn">Saved views ▾</button><div class="dd-menu" id="viewsmenu"></div></div>
     <div class="dropdown"><button class="btn" id="colsbtn">Columns ▾</button><div class="dd-menu" id="colsmenu"></div></div>
@@ -738,9 +759,12 @@ function renderPOs(){
     <div class="scrollx"><table id="potable"></table></div>
     <div class="pager" id="pager" style="padding:0 14px 12px"></div>
   </div>`;
-  $('#f-q').addEventListener('input', e=>{FS.q=e.target.value; PAGE=1; renderPOTable();});
-  [['f-wh','wh'],['f-plat','plat'],['f-ap','ap'],['f-cat','cat'],['f-from','from'],['f-to','to']].forEach(([id,k])=>
-    $('#'+id).addEventListener('change', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable();}));
+  // Text inputs fire on every keystroke; selects and date pickers on change.
+  [['f-q','q'],['f-oid','oid']].forEach(([id,k])=>
+    $('#'+id).addEventListener('input', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable(); paintFilterCount();}));
+  [['f-wh','wh'],['f-plat','plat'],['f-ch','ch'],['f-ap','ap'],['f-apd','apd'],['f-cat','cat'],['f-from','from'],['f-to','to']].forEach(([id,k])=>
+    $('#'+id).addEventListener('change', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable(); paintFilterCount();}));
+  paintFilterCount();
   $('#f-clear').addEventListener('click', ()=>{Object.keys(FS).forEach(k=>FS[k]=''); PAGE=1; renderPOs(); renderPOTable();});
   $('#exportbtn').addEventListener('click', exportCSV);
   $('#bulkbtn').addEventListener('click', ()=>{
@@ -807,7 +831,19 @@ function renderPOTable(){
   $('#pnext')?.addEventListener('click', ()=>{PAGE++; renderPOTable();});
   $$('#pager button[data-p]').forEach(b=>b.addEventListener('click', ()=>{PAGE=+b.dataset.p; renderPOTable();}));
 }
-function syncFilters(){ const m={'f-wh':'wh','f-plat':'plat','f-ap':'ap','f-cat':'cat'}; Object.entries(m).forEach(([id,k])=>{ const el=$('#'+id); if(el) el.value=FS[k]; }); }
+function syncFilters(){
+  const m={'f-q':'q','f-oid':'oid','f-wh':'wh','f-plat':'plat','f-ch':'ch','f-ap':'ap','f-apd':'apd','f-cat':'cat','f-from':'from','f-to':'to'};
+  Object.entries(m).forEach(([id,k])=>{ const el=$('#'+id); if(el) el.value=FS[k]; });
+  paintFilterCount();
+}
+// Filters live above a paged table, so it is easy to forget one is on and
+// read a filtered total as the whole picture. Show the count on the button.
+function paintFilterCount(){
+  const el=$('#f-count'); if(!el) return;
+  const n=Object.values(FS).filter(v=>v!=='').length;
+  el.textContent = n ? ` (${n})` : '';
+  const btn=$('#f-clear'); if(btn) btn.classList.toggle('primary', n>0);
+}
 function exportCSV(){
   const rows = [['PO Number','Warehouse','Platform','Channel','PO Date','Appointment','Appt Status','Age (days)','Item Code','Item Name','Category','Qty','MRP','PO Value','Remark']];
   filteredOrders().forEach(o=>o.lines.forEach(l=>rows.push([o.orderId,o.wh,o.platform,o.channel,o.orderDate,o.apptDate||'',o.apStatus,o.age,l.item,l.itemName,l.category,l.qty,l.mrp,l.value,REMARKS[o.orderId]||''])));
