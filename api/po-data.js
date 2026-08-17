@@ -217,6 +217,7 @@ function rowsToObjects(grid, aliases) {
 
 module.exports = async (req, res) => {
   const debug = req.query && (req.query.debug === '1' || req.query.debug === 'true');
+  const fresh = req.query && (req.query.fresh === '1' || req.query.fresh === 'true');
 
   const sheetId = process.env.SHEETS_ID;
   const saEmail = process.env.GOOGLE_SA_EMAIL;
@@ -418,8 +419,12 @@ module.exports = async (req, res) => {
     const platformMaster = (grids.platformMaster || []).slice(1)
       .filter((row) => row.some((c) => String(c == null ? '' : c).trim() !== ''));
 
-    res.setHeader('Cache-Control',
-      `public, max-age=0, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${STALE_SECONDS}`);
+    // A user-initiated refresh must not be answered from the CDN, or the
+    // button would appear to work while changing nothing. `fresh=1` is a
+    // distinct cache key AND is marked no-store, so it always hits Google.
+    res.setHeader('Cache-Control', fresh
+      ? 'no-store'
+      : `public, max-age=0, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${STALE_SECONDS}`);
 
     res.status(200).json({
       fetchedAt: new Date().toISOString(),
