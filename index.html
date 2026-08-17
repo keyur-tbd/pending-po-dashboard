@@ -176,7 +176,7 @@ svg text{font-family:inherit}
     <a data-view="masters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Masters</a>
     <a data-view="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>Data coverage</a>
   </nav>
-  <div class="sidenote">Snapshot of the SCM Google Sheet · 11 Aug 2026.<br>Summaries: Report Format tab (all 6 WHs). Line detail: Uni Commerce extract (AHM & KOL).</div>
+  <div class="sidenote" id="sidenote">Live from Google Sheets.</div>
 </aside>
 
 <div class="main">
@@ -367,7 +367,12 @@ const DATA = await (async function loadData(){
 })();
 /* ============ Pending PO Dashboard app ============ */
 'use strict';
-const SNAP = new Date(2026, 7, 11); // 11 Aug 2026 snapshot
+// Ageing is measured from today at midnight. This used to be frozen at
+// 11 Aug 2026, which silently understated every PO's age once the data
+// went live -- and by a day more with each day that passed.
+const SNAP = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
+const fmtDay = d => d.toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
+const TODAY_LABEL = fmtDay(SNAP);
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
 const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -460,10 +465,10 @@ const DQ = (() => {
 /* ---------- alerts ---------- */
 const apPendByPlat = PLATS.map(p => ({p, n: P.appointment.counts['Appointment Pending'][p]||0, v: P.appointment.values['Appointment Pending'][p]||0})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
 const ALERTS = [
-  {sev:'c', t:`${CRIT.n} POs are 9+ days old (${fmtC(CRIT.v)})`, s:'Raised 30 Jul – 2 Aug and still pending. Prioritise dispatch or closure.', go:'pos'},
+  {sev:'c', t:`${CRIT.n} POs are 9+ days old (${fmtC(CRIT.v)})`, s:'Still pending well past the ageing threshold. Prioritise dispatch or closure.', go:'pos'},
   {sev:'c', t:`${AP_PEND_N} POs have no appointment (${fmtC(AP_PEND_V)})`, s:`Largest: ${apPendByPlat[0]?.p} (${apPendByPlat[0]?.n} POs). Book delivery slots to avoid expiry.`, go:'pos'},
-  {sev:'w', t:`${TODAY_N} appointments due today (${fmtC(TODAY_V)})`, s:'Confirm vehicle placement and dispatch readiness for 11 Aug.', go:'pos'},
-  {sev:'w', t:`Fill-rate risk on Blinkit Gujarat SOs`, s:'Dispatch-vs-sales shows only 1 of 67 PO lines invoiced so far.', go:'billing'},
+  {sev:'w', t:`${TODAY_N} appointments due today (${fmtC(TODAY_V)})`, s:`Confirm vehicle placement and dispatch readiness for ${TODAY_LABEL}.`, go:'pos'},
+  {sev:'w', t:`Fill-rate risk on Blinkit Gujarat SOs`, s:`Dispatch-vs-sales covers ${DATA.fillRate.length} PO lines.`, go:'billing'},
   {sev:'i', t:`${DQ.mism} item-category mismatches between masters`, s:'Carton/MRP master vs Item Category master disagree; summary by category may vary.', go:'masters'},
   {sev:'i', t:`${DQ.noCarton} items missing carton size`, s:'Carton planning and fill optimisation unavailable for these SKUs.', go:'masters'},
 ];
@@ -556,14 +561,14 @@ function renderDashboard(){
   const fPO = F.reduce((s,r)=>s+r.poVal,0), fSO = F.reduce((s,r)=>s+r.soVal,0), fINV = F.reduce((s,r)=>s+r.invVal,0), fGRN = F.reduce((s,r)=>s+r.grnVal,0);
 
   v.innerHTML = `
-  <div class="note"><b>Snapshot · 11 Aug 2026.</b> Headline figures and the warehouse / platform / date / appointment summaries come from the sheet's <b>Report Format</b> pivots (all 6 warehouses, 114 POs). The line-level browser covers the <b>Uni Commerce raw extract</b> currently in the sheet — ${ORDERS.length} POs / ${DATA.poLines.length} lines for AHM&nbsp;WH and KOLWH (${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))}). See <a href="#" data-go="about" style="color:var(--accent)">Data coverage</a>.</div>
+  <div class="note"><b>Live from the sheet.</b> Every figure on this page is derived from the <b>${DATA._source?.tabs?.poLines || "PO lines"}</b> tab — ${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines across ${whRows.length} warehouse(s), ${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))}. Nothing here is precomputed. <a href="#" data-go="about" style="color:var(--accent)">Check row counts against the sheet</a>.</div>
   <div class="kpis">
-    ${kpi('Total pending POs', fmtIN(GT_N), 'across 6 warehouses · 8 platforms', {go:'pos'})}
+    ${kpi('Total pending POs', fmtIN(GT_N), `${whRows.length} warehouse(s) · ${PLATS.filter(p=>P.wh.counts['Grand Total'][p]>0).length} platform(s)`, {go:'pos'})}
     ${kpi('Pending value', fmtC(GT_V), fmtV(GT_V), {})}
-    ${kpi("Today's appointments", TODAY_N, `${fmtC(TODAY_V)} due 11 Aug`, {dot:'var(--warn)'})}
+    ${kpi("Today's appointments", TODAY_N, `${fmtC(TODAY_V)} due ${TODAY_LABEL}`, {dot:'var(--warn)'})}
     ${kpi('Appointment pending', AP_PEND_N, `${fmtC(AP_PEND_V)} · no slot booked`, {dot:'var(--serious)', color:'var(--serious)'})}
     ${kpi('Overdue (6+ days)', OVERDUE.n, `${fmtC(OVERDUE.v)} · PO age over 6 days`, {dot:'var(--warn)'})}
-    ${kpi('Critical (9+ days)', CRIT.n, `${fmtC(CRIT.v)} · raised 30 Jul–2 Aug`, {dot:'var(--crit)', color:'var(--crit)'})}
+    ${kpi('Critical (9+ days)', CRIT.n, `${fmtC(CRIT.v)} · PO age over 9 days`, {dot:'var(--crit)', color:'var(--crit)'})}
   </div>
   <div class="grid g2">
     <div class="card"><div class="hd"><div><h3>Warehouse summary</h3><div class="sub">Pending value by warehouse · hover for platform split</div></div></div><div id="ch-wh"></div></div>
@@ -587,7 +592,7 @@ function renderDashboard(){
           <div><div style="font-size:11px;color:var(--muted)">${l}</div><div style="font-weight:650;font-size:16px">${fmtC(x)}</div></div>`).join('')}
       </div>
       ${[['SO coverage of PO', fSO? Math.min(100,fPO?fSO/fPO*100:0):0, 'SOs exceed POs — Blinkit indent revisions create extra SO lines'],
-         ['Invoiced vs SO', fSO?fINV/fSO*100:0, 'only 1 of 67 lines invoiced in this cut'],
+         ['Invoiced vs SO', fSO?fINV/fSO*100:0, `${DATA.fillRate.length} PO lines in the dispatch-vs-sales tab`],
          ['GRN vs Invoice', fINV?fGRN/fINV*100:0, 'no GRNs recorded yet']].map(([l,pct,note])=>`
         <div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px"><span>${l}</span><b>${pct.toFixed(1)}%</b></div>
         <div class="meter"><i style="width:${Math.min(100,pct)}%;background:var(--seq-550)"></i></div>
@@ -744,7 +749,7 @@ function exportCSV(){
   filteredOrders().forEach(o=>o.lines.forEach(l=>rows.push([o.orderId,o.wh,o.platform,o.channel,o.orderDate,o.apptDate||'',o.apStatus,o.age,l.item,l.itemName,l.category,l.qty,l.mrp,l.value,REMARKS[o.orderId]||''])));
   const csv = rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download = 'pending_po_lines_snapshot_2026-08-11.csv'; a.click();
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download = 'pending_po_lines_' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
 }
 
 /* ============ PO DETAILS ============ */
@@ -893,17 +898,41 @@ function renderMBody(){
 /* ============ ABOUT / COVERAGE ============ */
 function renderAbout(){
   $('#view-about').innerHTML = `
-  <div class="card" style="margin-bottom:14px"><h3>What this dashboard reads</h3><div class="sub">Snapshot taken 11 Aug 2026 from the “SCM – Pending PO” Google Sheet</div>
-    <table><thead><tr><th>Sheet tab</th><th>Used for</th><th>Rows in snapshot</th></tr></thead><tbody>
-      <tr><td>Report Format (pivots)</td><td>Headline KPIs, warehouse / platform / PO-date / appointment summaries — the full 114-PO universe</td><td>3 pivots · 6 WHs · 8 platforms</td></tr>
-      <tr><td>Uni Commerce PO (raw)</td><td>Line-level workbench, PO details, category summary, CSV export</td><td>${DATA.poLines.length} lines · ${ORDERS.length} POs (AHM WH, KOLWH)</td></tr>
-      <tr><td>Dispatch vs Sales</td><td>Billing status: PO → SO → Invoice → GRN</td><td>${DATA.fillRate.length} lines</td></tr>
-      <tr><td>Carton & MRP master</td><td>MRP, carton size, category</td><td>${Object.keys(DATA.items).length} SKUs</td></tr>
-      <tr><td>Item Category master</td><td>Category cross-check</td><td>${Object.keys(DATA.itemCat).length} SKUs</td></tr>
-      <tr><td>Warehouse / Platform masters</td><td>Reference</td><td>${DATA.warehouses.length} WHs · ${(DATA.platformMaster||[]).length} locations</td></tr>
-    </tbody></table></div>
-  <div class="card" style="margin-bottom:14px"><h3>Known gap</h3><div class="sub">Why summary and line counts differ</div>
-    <p style="line-height:1.6;font-size:12.5px">The Report Format pivots summarise <b>114 pending POs (₹1.90 Cr)</b> across all six warehouses, but the raw Uni Commerce tab in the sheet currently holds line rows for only <b>${ORDERS.length} POs (${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))})</b> from AHM WH and KOLWH. The pivots were evidently built from a fuller extract. Both are shown here, clearly labelled; once the raw tab carries all warehouses' rows, every widget will reconcile to the same universe.</p></div>
+  <div class="card" style="margin-bottom:14px"><h3>What this dashboard reads</h3><div class="sub">Live from <b>${esc(DATA._source?.spreadsheet || "the Google Sheet")}</b> · read ${DATA.fetchedAt ? new Date(DATA.fetchedAt).toLocaleString("en-IN") : "—"}</div>
+    <p style="font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 10px">
+      <b>Rows read</b> is the row count returned by the tab, excluding its header. Compare it
+      against the sheet directly: it should equal the last used row minus one. If it doesn't,
+      the dashboard is not seeing what you think it is.</p>
+    <table><thead><tr><th>Sheet tab</th><th>Feeds</th><th style="text-align:right">Rows read</th><th style="text-align:right">After processing</th></tr></thead><tbody>
+      ${(() => {
+        const src = DATA._source || {tabs:{}, rows_read:{}, unmatched:[]};
+        const spec = [
+          ['poLines',        'PO lines, ageing, KPIs, all charts, CSV export', `${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines`],
+          ['fillRate',       'Billing: PO → SO → Invoice → GRN',               `${fmtIN(DATA.fillRate.length)} lines`],
+          ['items',          'MRP, carton size, category',                     `${fmtIN(Object.keys(DATA.items).length)} SKUs`],
+          ['itemCat',        'Category cross-check',                           `${fmtIN(Object.keys(DATA.itemCat).length)} SKUs`],
+          ['warehouses',     'Warehouse reference',                            `${fmtIN(DATA.warehouses.length)} WHs`],
+          ['platformMaster', 'Channel / platform reference',                   `${fmtIN((DATA.platformMaster||[]).length)} rows`]
+        ];
+        return spec.map(([key, feeds, after]) => {
+          const tab = src.tabs[key];
+          const rows = src.rows_read[key];
+          const missing = !tab;
+          return `<tr${missing?' style="opacity:.6"':''}>
+            <td>${missing ? '<span style="color:var(--crit)">not matched</span>' : esc(tab)}</td>
+            <td>${feeds}</td>
+            <td style="text-align:right">${missing ? '—' : fmtIN(rows)}</td>
+            <td style="text-align:right">${missing ? '—' : after}</td></tr>`;
+        }).join('');
+      })()}
+    </tbody></table>
+    ${(DATA._source?.unmatched||[]).length ? `<div class="note" style="margin-top:10px">
+      <b>${DATA._source.unmatched.length} tab(s) not matched:</b> ${DATA._source.unmatched.join(', ')}.
+      Those sections are empty because the tab name in <code>api/po-data.js</code> doesn't match the sheet —
+      not because the data is missing.</div>` : ''}
+    </div>
+  <div class="card" style="margin-bottom:14px"><h3>How figures are derived</h3><div class="sub">Nothing on this dashboard is precomputed</div>
+    <p style="line-height:1.6;font-size:12.5px">Every headline number, chart and table is calculated in the browser from the <b>${esc(DATA._source?.tabs?.poLines || "PO lines")}</b> tab at the moment the page loads. Earlier versions read summary figures from a separate pivot tab, which is why headline counts could disagree with the line-level tables. That is no longer possible — KPIs and tables now come from the same rows. PO counts are distinct PO numbers, not line counts. Ageing is measured from today (${TODAY_LABEL}), not a fixed snapshot date.</p></div>
   <div class="card"><h3>Data-quality findings in this snapshot</h3><div class="sub">Worth fixing at source — each one currently limits what the dashboard can compute</div>
     <div class="alerts">
       ${[`${DQ.mism} SKUs have conflicting categories between the Carton/MRP master and the Item Category master (e.g. “TOASTS” vs “TOAST”, “On the go cakes” vs “CAKES”).`,
