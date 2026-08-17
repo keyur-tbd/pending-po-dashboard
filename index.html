@@ -527,7 +527,7 @@ const ALERTS = [
   {sev:'c', t:`${CRIT.n} POs are 9+ days old (${fmtC(CRIT.v)})`, s:'Still pending well past the ageing threshold. Prioritise dispatch or closure.', go:'pos'},
   {sev:'c', t:`${AP_PEND_N} POs have no appointment (${fmtC(AP_PEND_V)})`, s:`Largest: ${apPendByPlat[0]?.p} (${apPendByPlat[0]?.n} POs). Book delivery slots to avoid expiry.`, go:'pos'},
   {sev:'w', t:`${TODAY_N} appointments due today (${fmtC(TODAY_V)})`, s:`Confirm vehicle placement and dispatch readiness for ${TODAY_LABEL}.`, go:'pos'},
-  {sev:'w', t:`Fill-rate risk on Blinkit Gujarat SOs`, s:`Dispatch-vs-sales covers ${DATA.fillRate.length} PO lines.`, go:'billing'},
+  ...(DATA.fillRate.length ? [{sev:'w', t:`Fill-rate tracking on ${fmtIN(DATA.fillRate.length)} PO lines`, s:'Review SO to invoice to GRN progression.', go:'billing'}] : []),
   {sev:'i', t:`${DQ.mism} item-category mismatches between masters`, s:'Carton/MRP master vs Item Category master disagree; summary by category may vary.', go:'masters'},
   {sev:'i', t:`${DQ.noCarton} items missing carton size`, s:'Carton planning and fill optimisation unavailable for these SKUs.', go:'masters'},
 ];
@@ -651,7 +651,7 @@ function renderDashboard(){
           <div><div style="font-size:11px;color:var(--muted)">${l}</div><div style="font-weight:650;font-size:16px">${fmtC(x)}</div></div>`).join('')}
       </div>
       ${[['SO coverage of PO', fSO? Math.min(100,fPO?fSO/fPO*100:0):0, 'SOs exceed POs — Blinkit indent revisions create extra SO lines'],
-         ['Invoiced vs SO', fSO?fINV/fSO*100:0, `${DATA.fillRate.length} PO lines in the dispatch-vs-sales tab`],
+         ['Invoiced vs SO', fSO?fINV/fSO*100:0, DATA.fillRate.length ? `${fmtIN(DATA.fillRate.length)} PO lines tracked` : 'fill-rate data not loaded'],
          ['GRN vs Invoice', fINV?fGRN/fINV*100:0, 'no GRNs recorded yet']].map(([l,pct,note])=>`
         <div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px"><span>${l}</span><b>${pct.toFixed(1)}%</b></div>
         <div class="meter"><i style="width:${Math.min(100,pct)}%;background:var(--seq-550)"></i></div>
@@ -882,7 +882,7 @@ function renderBilling(){
     a.po+=r.poVal; a.so+=r.soVal; a.inv+=r.invVal; a.grn+=r.grnVal; a.n++; });
   const fPO=F.reduce((s,r)=>s+r.poVal,0), fSO=F.reduce((s,r)=>s+r.soVal,0), fINV=F.reduce((s,r)=>s+r.invVal,0);
   v.innerHTML = `
-  <div class="note">The sheet's <b>Dispatch vs Sales</b> tab tracks each PO line from sales order to invoice to GRN — currently ${F.length} lines (Blinkit Sanand & Palsana Chokdi, plus one Reliance Ambala line). SO value exceeding PO value reflects Blinkit's revised/split indents; treat percentages as indicative until PO numbers are captured as text (they are stored in scientific notation in the sheet, e.g. 2.73811E+12).</div>
+  ${F.length ? `<div class="note">The <b>Dispatch vs Sales</b> tab tracks each PO line from sales order to invoice to GRN — ${fmtIN(F.length)} lines loaded. SO value above PO value reflects revised or split indents.</div>` : `<div class="note"><b>Fill-rate data is not loaded.</b> The Dispatch vs Sales tab holds roughly 87,000 rows, which is too large to send to the browser, so it is switched off in <code>api/po-data.js</code> until it is summarised on the server. Nothing below is missing data — it has not been read.</div>`}
   <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
     ${kpi('Tracked PO value', fmtC(fPO), F.length+' lines')}
     ${kpi('SO value', fmtC(fSO), 'sales orders raised')}
@@ -976,15 +976,21 @@ function renderAbout(){
         return spec.map(([key, feeds, after]) => {
           const tab = src.tabs[key];
           const rows = src.rows_read[key];
+          const isSkipped = (src.skipped || []).includes(key);
           const missing = !tab;
           return `<tr${missing?' style="opacity:.6"':''}>
-            <td>${missing ? '<span style="color:var(--crit)">not matched</span>' : esc(tab)}</td>
+            <td>${isSkipped ? '<span style="color:var(--warn)">switched off</span>'
+                 : missing ? '<span style="color:var(--crit)">not matched</span>' : esc(tab)}</td>
             <td>${feeds}</td>
             <td style="text-align:right">${missing ? '—' : fmtIN(rows)}</td>
             <td style="text-align:right">${missing ? '—' : after}</td></tr>`;
         }).join('');
       })()}
     </tbody></table>
+    ${(DATA._source?.skipped||[]).length ? `<div class="note" style="margin-top:10px">
+      <b>Switched off:</b> ${DATA._source.skipped.join(', ')}. Too large to send to the browser as raw
+      rows. These need summarising on the server before they can be switched back on. This is a
+      deliberate setting in <code>api/po-data.js</code>, not a failure.</div>` : ''}
     ${(DATA._source?.unmatched||[]).length ? `<div class="note" style="margin-top:10px">
       <b>${DATA._source.unmatched.length} tab(s) not matched:</b> ${DATA._source.unmatched.join(', ')}.
       Those sections are empty because the tab name in <code>api/po-data.js</code> doesn't match the sheet —
