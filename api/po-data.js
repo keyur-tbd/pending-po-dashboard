@@ -27,11 +27,19 @@ const crypto = require('crypto');
 // If a tab is missing the dashboard still loads, minus that section.
 // ---------------------------------------------------------------------------
 const TABS = {
-  poLines:        'PO Lines',        // the Uni Commerce PO line extract
-  fillRate:       'Fill Rate',       // PO / SO / Invoice / GRN by line
-  items:          'Item Master',     // item code, name, mrp, category, carton
-  itemCat:        'Item Category',   // item code -> reporting category
-  platformMaster: 'Platform Master'  // ship-to, city, platform, channel, tier
+  // --- confirmed from your sheet "Pending POs" ---
+  poLines:        'Uni-Commerce Data',            // the PO line extract
+  items:          'Carton & MRP',                 // item code, name, mrp, carton
+  itemCat:        'Item code & Category Master',  // item code -> category
+  platformMaster: 'Channel And Platform Master',  // name, city, display name, channel, city type
+  warehouses:     'WH Master',                    // warehouse code -> name
+
+  // --- NOT yet confirmed ---
+  // Nothing in your sheet is obviously the PO / SO / Invoice / GRN fill-rate
+  // data. Candidates are "Report Format" and "D vs S". Set this to whichever
+  // one holds it. Leaving it wrong is harmless: the dashboard still loads and
+  // the billing/fill-rate section simply stays empty.
+  fillRate:       'Fill Rate'
 };
 
 // ---------------------------------------------------------------------------
@@ -390,8 +398,22 @@ module.exports = async (req, res) => {
       if (code) itemCat[code] = r.category || r.reportingcategory || '';
     });
 
-    const warehouses = [...new Set(poLines.map((l) => l.wh).filter(Boolean))]
-      .sort().map((name) => ({ code: name, name }));
+    // Warehouses: prefer the WH Master tab if it has usable rows, otherwise
+    // fall back to whatever actually appears in the PO lines. The fallback
+    // means a new WH going live is never invisible, even if the master lags.
+    const whRows = rowsToObjects(grids.warehouses);
+    let warehouses = whRows
+      .map((r) => {
+        const code = r.warehousecode || r.whcode || r.code || r.warehouse || '';
+        const name = r.warehousename || r.whname || r.name || code;
+        return code || name ? { code: code || name, name: name || code } : null;
+      })
+      .filter(Boolean);
+
+    if (!warehouses.length) {
+      warehouses = [...new Set(poLines.map((l) => l.wh).filter(Boolean))]
+        .sort().map((name) => ({ code: name, name }));
+    }
 
     const platformMaster = (grids.platformMaster || []).slice(1)
       .filter((row) => row.some((c) => String(c == null ? '' : c).trim() !== ''));
