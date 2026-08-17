@@ -28,12 +28,21 @@ const crypto = require('crypto');
 // ---------------------------------------------------------------------------
 const TABS = {
   // --- confirmed from your sheet "Pending POs" ---
-  poLines:        'Uni-Commerce Data',            // the PO line extract
+  poLines:        'Uni-Commerce Data',            // 1,999 rows -- small and fast
   items:          'Carton & MRP',                 // item code, name, mrp, carton
   itemCat:        'Item code & Category Master',  // item code -> category
   platformMaster: 'Channel And Platform Master',  // name, city, display name, channel, city type
   warehouses:     'WH Master',                    // warehouse code -> name
-  fillRate:       'D vs S'                        // dispatch vs sales: PO/SO/Invoice/GRN
+
+  // --- DISABLED: this is what was timing out the function ---
+  // "D vs S" holds ~87,000 rows x 36 columns, roughly 3.1 million cells. Pulling
+  // that through the values API and serialising it to JSON blows the function's
+  // time limit, and it would be a multi-megabyte download for the browser.
+  //
+  // The billing view only needs totals and a per-ship-to rollup -- a few hundred
+  // numbers, not 87,000 rows. Set this back to 'D vs S' once the aggregation is
+  // written, so the summarising happens here instead of in the browser.
+  fillRate:       null
 };
 
 // ---------------------------------------------------------------------------
@@ -289,8 +298,11 @@ module.exports = async (req, res) => {
     const actualTabs = (meta.sheets || []).map((s) => s.properties.title);
 
     // --- Step 2: match configured tab names to real ones, forgivingly ---
-    const matched = {}, unmatched = [];
+    const matched = {}, unmatched = [], skipped = [];
     Object.keys(TABS).forEach((block) => {
+      // A null/empty tab name means "deliberately not read" -- distinct from
+      // "configured but not found", which is a mistake worth flagging.
+      if (!TABS[block]) { skipped.push(block); return; }
       const want = norm(TABS[block]);
       const hit = actualTabs.find((t) => norm(t) === want)
                || actualTabs.find((t) => norm(t).includes(want) || want.includes(norm(t)));
@@ -342,7 +354,7 @@ module.exports = async (req, res) => {
         auth: { mode: 'service account', signed_in_as: saEmail },
         spreadsheet: meta.properties && meta.properties.title,
         tabs_in_your_sheet: actualTabs,
-        matched, unmatched, blocks: view,
+        matched, unmatched, skipped, blocks: view,
         what_the_dashboard_needs: {
           poLines: ['wh', 'orderId', 'channel', 'apptDate', 'orderDate', 'item', 'value', 'qty', 'mrp', 'custCode', 'shipTo', 'custRef'],
           note: 'Any name under headers_after_mapping that is not in this list is ignored, not an error. '
@@ -433,7 +445,8 @@ module.exports = async (req, res) => {
           acc[b] = Math.max(0, (grids[b] || []).length - 1);
           return acc;
         }, {}),
-        unmatched: unmatched.map((u) => u.block)
+        unmatched: unmatched.map((u) => u.block),
+        skipped
       },
       _counts: {
         poLines: poLines.length,
