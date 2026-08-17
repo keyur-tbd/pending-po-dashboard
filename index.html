@@ -266,12 +266,17 @@ const DATA = await (async function loadData(){
   };
 
   let d;
+  // A refresh click reloads the page with ?refresh=1, which we turn into
+  // ?fresh=1 on the API so the CDN cache is bypassed. Reloading rather than
+  // re-deriving in place means every view is rebuilt from the new data --
+  // no chance of a stale chart sitting next to a fresh table.
+  //
+  // Declared OUT here on purpose: it is read again further down, after the
+  // try block, to strip the query param from the URL. Declaring it with const
+  // inside the try made it block-scoped and the later read threw
+  // "wantsFresh is not defined".
+  const wantsFresh = new URLSearchParams(location.search).get('refresh') === '1';
   try {
-    // A refresh click reloads the page with ?refresh=1, which we turn into
-    // ?fresh=1 on the API so the CDN cache is bypassed. Reloading rather than
-    // re-deriving in place means every view is rebuilt from the new data --
-    // no chance of a stale chart sitting next to a fresh table.
-    const wantsFresh = new URLSearchParams(location.search).get('refresh') === '1';
 
     // Without a timeout a hung function leaves the page loading forever with
     // no explanation -- which is exactly the failure this replaced.
