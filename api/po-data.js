@@ -88,13 +88,37 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
  *   - literal backslash-n instead of newlines (the usual case)
  *   - wrapped in quotes, because it was copied straight out of the JSON file
  *   - Windows line endings
+ *   - all whitespace stripped, so BEGIN/END sit flush against the base64
+ *
+ * The last one is the nastiest: it still contains the words BEGIN and
+ * PRIVATE KEY, so it passes a naive shape check, then fails deep inside
+ * OpenSSL with an unhelpful "DECODER routines::unsupported". So rather than
+ * patching up whitespace, this pulls out the base64 payload and rebuilds the
+ * PEM from scratch. Whatever went in, a correctly formed PEM comes out.
  */
 function normalisePrivateKey(raw) {
   let k = String(raw || '').trim();
+
   if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
     k = k.slice(1, -1);
   }
-  return k.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim();
+  k = k.replace(/\\n/g, '\n').replace(/\\r/g, '').replace(/\r/g, '');
+
+  // What kind of key is it? Google issues PKCS#8 ("PRIVATE KEY"), but accept
+  // the traditional RSA form too rather than silently mangling it.
+  const label = /BEGIN\s+RSA\s+PRIVATE\s+KEY/i.test(k) ? 'RSA PRIVATE KEY' : 'PRIVATE KEY';
+
+  // Strip every marker and all whitespace, leaving just the base64 payload.
+  const body = k
+    .replace(/-{2,}\s*(BEGIN|END)[A-Z\s]*-{2,}/gi, '')
+    .replace(/\s+/g, '');
+
+  if (!body) return k;
+
+  // Rebuild with the payload wrapped at 64 characters, which is what PEM
+  // requires and what OpenSSL refuses to work without.
+  const lines = body.match(/.{1,64}/g) || [];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
 }
 
 const b64url = (buf) => Buffer.from(buf)
