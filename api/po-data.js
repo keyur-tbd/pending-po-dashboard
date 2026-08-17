@@ -294,37 +294,32 @@ module.exports = async (req, res) => {
       if (hit) matched[block] = hit; else unmatched.push({ block, looking_for: TABS[block] });
     });
 
-    if (!matched.poLines) {
-      res.status(422).json({
-        error: 'Could not find the PO Lines tab.',
-        looking_for: TABS.poLines,
-        tabs_in_your_sheet: actualTabs,
-        hint: 'Edit the TABS block at the top of api/po-data.js so poLines matches one of the names above.'
-      });
-      return;
-    }
-
-    // --- Step 3: read the matched tabs in one call ---
+    // --- Step 3: read whatever tabs did match, in one call ---
+    // NOTE: the "PO Lines missing" check deliberately happens AFTER this, so
+    // that ?debug=1 still works when a tab name is wrong. That is exactly the
+    // moment you need it most.
     const blocks = Object.keys(matched);
-    const qs = blocks.map((b) => `ranges=${encodeURIComponent(matched[b])}`).join('&');
-    const valUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet`
-                 + `?${qs}&majorDimension=ROWS`;
-    const valRes = await fetch(valUrl, auth);
-    if (!valRes.ok) {
-      const body = await valRes.text();
-      res.status(502).json({
-        error: 'Google Sheets rejected the data request.',
-        status: valRes.status,
-        detail: body.slice(0, 600)
-      });
-      return;
-    }
-    const val = await valRes.json();
-
     const grids = {};
-    blocks.forEach((b, i) => {
-      grids[b] = (val.valueRanges && val.valueRanges[i] && val.valueRanges[i].values) || [];
-    });
+
+    if (blocks.length) {
+      const qs = blocks.map((b) => `ranges=${encodeURIComponent(matched[b])}`).join('&');
+      const valUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet`
+                   + `?${qs}&majorDimension=ROWS`;
+      const valRes = await fetch(valUrl, auth);
+      if (!valRes.ok) {
+        const body = await valRes.text();
+        res.status(502).json({
+          error: 'Google Sheets rejected the data request.',
+          status: valRes.status,
+          detail: body.slice(0, 600)
+        });
+        return;
+      }
+      const val = await valRes.json();
+      blocks.forEach((b, i) => {
+        grids[b] = (val.valueRanges && val.valueRanges[i] && val.valueRanges[i].values) || [];
+      });
+    }
 
     // --- Debug view: show what came back, before any reshaping ---
     if (debug) {
@@ -350,6 +345,23 @@ module.exports = async (req, res) => {
           note: 'Any name under headers_after_mapping that is not in this list is ignored, not an error. '
               + 'A missing name from this list means you need an alias in FIELD_ALIASES.'
         }
+      });
+      return;
+    }
+
+    // --- Step 3b: the one tab we cannot do without ---
+    // `detail` carries the tab list because that is the field the dashboard's
+    // error screen displays. Putting it only in a side field means the person
+    // staring at the error never sees the answer.
+    if (!matched.poLines) {
+      res.status(422).json({
+        error: 'Could not find the PO Lines tab.',
+        detail: 'Looking for a tab named "' + TABS.poLines + '". The tabs in your sheet are: '
+              + (actualTabs.length ? actualTabs.map((t) => '"' + t + '"').join(', ') : '(none found)')
+              + '. Edit the TABS block at the top of api/po-data.js so poLines matches one of these, then redeploy.',
+        looking_for: TABS.poLines,
+        tabs_in_your_sheet: actualTabs,
+        also_unmatched: unmatched
       });
       return;
     }
