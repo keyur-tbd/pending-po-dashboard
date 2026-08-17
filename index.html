@@ -236,8 +236,22 @@ const DATA = await (async function loadData(){
     + 'justify-content:center;text-align:center;padding:24px;background:var(--page);color:var(--ink);'
     + 'font:14px system-ui,-apple-system,"Segoe UI",sans-serif';
   screen.innerHTML = '<div><b>Loading purchase orders</b><br>'
-    + '<span style="color:var(--muted);font-size:12.5px">Reading the source sheet.</span></div>';
+    + '<span style="color:var(--muted);font-size:12.5px" id="bootstatus">Reading the source sheet.</span></div>';
   document.body.append(screen);
+
+  // A dead screen tells you nothing. Count up, so a slow read is visibly
+  // different from a hung one.
+  const t0 = Date.now();
+  const statusEl = () => document.getElementById('bootstatus');
+  const tick = setInterval(() => {
+    const secs = Math.round((Date.now() - t0) / 1000);
+    const el = statusEl();
+    if (el && secs >= 3) {
+      el.textContent = secs < 15
+        ? 'Reading the source sheet... ' + secs + 's'
+        : 'Still reading... ' + secs + 's. Large sheets can take a while.';
+    }
+  }, 1000);
 
   const fail = (title, detail, hint) => {
     screen.innerHTML = '<div style="max-width:560px;line-height:1.5">'
@@ -258,13 +272,40 @@ const DATA = await (async function loadData(){
     // re-deriving in place means every view is rebuilt from the new data --
     // no chance of a stale chart sitting next to a fresh table.
     const wantsFresh = new URLSearchParams(location.search).get('refresh') === '1';
-    const res = await fetch(DATA_ENDPOINT + (wantsFresh ? '?fresh=1' : ''));
-    d = await res.json();
+
+    // Without a timeout a hung function leaves the page loading forever with
+    // no explanation -- which is exactly the failure this replaced.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    let res;
+    try {
+      res = await fetch(DATA_ENDPOINT + (wantsFresh ? '?fresh=1' : ''), { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const raw = await res.text();
+    try {
+      d = JSON.parse(raw);
+    } catch (parseErr) {
+      // A gateway timeout or crash returns HTML, not JSON. Say so plainly
+      // rather than surfacing "Unexpected token <".
+      throw new Error('The server returned ' + res.status + ' with a non-JSON response ('
+        + raw.length + ' bytes). This usually means the function timed out or crashed. '
+        + 'First 200 characters: ' + raw.slice(0, 200));
+    }
     if (!res.ok) throw new Error(d.detail || d.error || ('Request failed (' + res.status + ')'));
   } catch (err) {
+    clearInterval(tick);
+    console.error('[dashboard] load failed:', err);
+    const aborted = err && err.name === 'AbortError';
     fail('The dashboard could not read the sheet',
-         String(err && err.message ? err.message : err),
-         'Open <code>/api/po-data?debug=1</code> in a new tab to see which tabs and columns the sheet is returning.');
+         aborted
+           ? 'The request took longer than 30 seconds and was cancelled. The sheet may be very large, '
+             + 'or the function may be timing out.'
+           : String(err && err.message ? err.message : err),
+         'Open <code>/api/po-data?debug=1</code> in a new tab to see what the sheet is returning. '
+         + 'Full details are in the browser console (F12).');
     throw err;
   }
 
@@ -274,6 +315,12 @@ const DATA = await (async function loadData(){
          'Check that the tab has a header row in row 1 and data below it.');
     throw new Error('no PO lines');
   }
+
+  /* ---- from here on, any throw must still surface -------------------------
+     Previously this section sat outside the try/catch, so a single bad row
+     could leave the page stuck on "Loading purchase orders" forever with
+     nothing reported anywhere. ---------------------------------------------- */
+  try {
 
   /* ---- rebuild the pivot from the PO lines (PO counts, not line counts) ---- */
   const platOfLocal = ch => {
@@ -362,8 +409,20 @@ const DATA = await (async function loadData(){
     });
   }
 
+  clearInterval(tick);
   screen.remove();
   return d;
+
+  } catch (err) {
+    clearInterval(tick);
+    console.error('[dashboard] failed while processing sheet data:', err);
+    fail('The sheet was read, but the data could not be processed',
+         String(err && err.message ? err.message : err),
+         'The rows arrived but something in them broke the calculation. '
+         + 'Open the browser console (F12) for the full stack trace, and check '
+         + '<code>/api/po-data?debug=1</code> for the column names being returned.');
+    throw err;
+  }
 })();
 /* ============ Pending PO Dashboard app ============ */
 'use strict';
