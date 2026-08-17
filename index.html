@@ -465,30 +465,90 @@ const days = d => d ? Math.round((SNAP - d)/86400000) : null;
 
 /* ---------- palette ---------- */
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const PLATS = DATA.pivot.wh.platforms; // fixed entity order
+const PLATS = DATA.pivot.wh.platforms; // fixed entity order, never filtered
 const PCOLOR = {}; PLATS.forEach((p,i)=> PCOLOR[p] = `var(--s${i+1})`);
 
-/* ---------- derived (full universe – Report Format pivot) ---------- */
-const P = DATA.pivot;
-const GT_N = P.wh.counts['Grand Total'].total, GT_V = P.wh.values['Grand Total'].total;
-const whRows = Object.keys(P.wh.counts).filter(k=>k!=='Grand Total');
-const dateRows = Object.keys(P.poDate.counts).filter(k=>k!=='Grand Total');
-const apRows = Object.keys(P.appointment.counts).filter(k=>k!=='Grand Total');
-const AP_PEND_N = P.appointment.counts['Appointment Pending'].total;
-const AP_PEND_V = P.appointment.values['Appointment Pending'].total;
+/* ---------- derived figures --------------------------------------------
+   These used to be `const`, computed once from every order. They are now
+   rebuilt by recompute() from whatever set of orders is currently in scope,
+   so the Dashboard responds to the filter bar.
+
+   `let`, not `const`, precisely because they are reassigned. Everything that
+   reads them (renderDashboard and friends) is unchanged -- it still sees the
+   same names, just with current values.
+   ---------------------------------------------------------------------- */
 const TODAY_KEY = (() => { const d = new Date(), p = n => String(n).padStart(2,'0');
   return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`; })();
-const TODAY_N = P.appointment.counts[TODAY_KEY]?.total || 0;
-const TODAY_V = P.appointment.values[TODAY_KEY]?.total || 0;
-// ageing from PO-date pivot
 const AGE_BUCKETS = [['0–2 days',0,2],['3–5 days',3,5],['6–8 days',6,8],['9+ days',9,99]];
-const ageAgg = AGE_BUCKETS.map(([lbl,lo,hi]) => {
-  let n=0,v=0;
-  dateRows.forEach(dr => { const a = days(pDMY(dr)); if (a>=lo && a<=hi){ n+=P.poDate.counts[dr].total; v+=P.poDate.values[dr].total; } });
-  return {label:lbl, n, v};
-});
-const OVERDUE = ageAgg.filter(b=>b.label!=='0–2 days'&&b.label!=='3–5 days').reduce((s,b)=>({n:s.n+b.n,v:s.v+b.v}),{n:0,v:0}); // 6+ days
-const CRIT = ageAgg[3]; // 9+ days
+
+let P, GT_N, GT_V, whRows, dateRows, apRows;
+let AP_PEND_N, AP_PEND_V, TODAY_N, TODAY_V;
+let ageAgg, OVERDUE, CRIT;
+let SCOPE_ORDERS = null;   // null = the full universe
+
+/* Build the three pivots from an arbitrary list of orders. Counts are distinct
+   POs, values are summed PO values -- identical logic to the initial load, so
+   a filtered view and the full view are computed the same way. */
+function pivotFrom(orders){
+  const blank = () => { const o = {total:0}; PLATS.forEach(p=>o[p]=0); return o; };
+  const make = keyOf => {
+    const counts = {}, values = {};
+    orders.forEach(o => {
+      const k = keyOf(o); if (!k) return;
+      if (!counts[k]) { counts[k] = blank(); values[k] = blank(); }
+      const pl = o.platform;
+      if (counts[k][pl] === undefined) { counts[k][pl] = 0; values[k][pl] = 0; }
+      counts[k][pl]++; counts[k].total++;
+      values[k][pl] += o.value; values[k].total += o.value;
+    });
+    const gc = blank(), gv = blank();
+    Object.keys(counts).forEach(k => Object.keys(counts[k]).forEach(pl => {
+      gc[pl] = (gc[pl]||0) + counts[k][pl];
+      gv[pl] = (gv[pl]||0) + values[k][pl];
+    }));
+    counts['Grand Total'] = gc; values['Grand Total'] = gv;
+    return { platforms: PLATS, counts, values };
+  };
+  return {
+    wh:          make(o => o.wh || 'Unmapped'),
+    poDate:      make(o => o.orderDate),
+    appointment: make(o => o.apptDate || 'Appointment Pending')
+  };
+}
+
+function recompute(orders){
+  SCOPE_ORDERS = orders || null;
+  // Both paths go through pivotFrom, so the unfiltered view and a filtered one
+  // are computed by identical code. Falling back to a prebuilt DATA.pivot here
+  // would mean two code paths that could drift -- and would crash if it were
+  // ever absent.
+  P = pivotFrom(orders || ORDERS);
+
+  GT_N = P.wh.counts['Grand Total'].total;
+  GT_V = P.wh.values['Grand Total'].total;
+  whRows   = Object.keys(P.wh.counts).filter(k=>k!=='Grand Total');
+  dateRows = Object.keys(P.poDate.counts).filter(k=>k!=='Grand Total');
+  apRows   = Object.keys(P.appointment.counts).filter(k=>k!=='Grand Total');
+
+  // Optional chaining matters here: filter to a single scheduled warehouse and
+  // the 'Appointment Pending' row simply will not exist.
+  AP_PEND_N = P.appointment.counts['Appointment Pending']?.total || 0;
+  AP_PEND_V = P.appointment.values['Appointment Pending']?.total || 0;
+  TODAY_N   = P.appointment.counts[TODAY_KEY]?.total || 0;
+  TODAY_V   = P.appointment.values[TODAY_KEY]?.total || 0;
+
+  ageAgg = AGE_BUCKETS.map(([lbl,lo,hi]) => {
+    let n=0,v=0;
+    dateRows.forEach(dr => {
+      const a = days(pDMY(dr));
+      if (a!==null && a>=lo && a<=hi){ n+=P.poDate.counts[dr].total; v+=P.poDate.values[dr].total; }
+    });
+    return {label:lbl, n, v};
+  });
+  OVERDUE = ageAgg.filter(b=>b.label!=='0–2 days'&&b.label!=='3–5 days')
+                  .reduce((s,b)=>({n:s.n+b.n,v:s.v+b.v}),{n:0,v:0});
+  CRIT = ageAgg[3];
+}
 
 /* ---------- line-level detail (Uni Commerce extract) ---------- */
 const platOf = ch => {
@@ -516,6 +576,8 @@ const ORDERS = (() => { const m = new Map();
   return [...m.values()].sort((a,b)=> b.oDate-a.oDate); })();
 const REMARKS = {}; // in-memory, session only
 
+recompute(null);   // full universe on first paint
+
 /* ---------- data-quality findings (computed) ---------- */
 const DQ = (() => {
   const items = DATA.items, icat = DATA.itemCat;
@@ -527,10 +589,12 @@ const DQ = (() => {
 })();
 
 /* ---------- alerts ---------- */
-const apPendByPlat = PLATS.map(p => ({p, n: P.appointment.counts['Appointment Pending'][p]||0, v: P.appointment.values['Appointment Pending'][p]||0})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
-const ALERTS = [
+const apPendByPlat = () => PLATS.map(p => ({p,
+    n: P.appointment.counts['Appointment Pending']?.[p]||0,
+    v: P.appointment.values['Appointment Pending']?.[p]||0})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+const buildAlerts = () => [
   {sev:'c', t:`${CRIT.n} POs are 9+ days old (${fmtC(CRIT.v)})`, s:'Still pending well past the ageing threshold. Prioritise dispatch or closure.', go:'pos'},
-  {sev:'c', t:`${AP_PEND_N} POs have no appointment (${fmtC(AP_PEND_V)})`, s:`Largest: ${apPendByPlat[0]?.p} (${apPendByPlat[0]?.n} POs). Book delivery slots to avoid expiry.`, go:'pos'},
+  {sev:'c', t:`${AP_PEND_N} POs have no appointment (${fmtC(AP_PEND_V)})`, s:`Largest: ${apPendByPlat()[0]?.p ?? '—'} (${apPendByPlat()[0]?.n ?? 0} POs). Book delivery slots to avoid expiry.`, go:'pos'},
   {sev:'w', t:`${TODAY_N} appointments due today (${fmtC(TODAY_V)})`, s:`Confirm vehicle placement and dispatch readiness for ${TODAY_LABEL}.`, go:'pos'},
   ...(DATA.fillRate.length ? [{sev:'w', t:`Fill-rate tracking on ${fmtIN(DATA.fillRate.length)} PO lines`, s:'Review SO to invoice to GRN progression.', go:'billing'}] : []),
   {sev:'i', t:`${DQ.mism} item-category mismatches between masters`, s:'Carton/MRP master vs Item Category master disagree; summary by category may vary.', go:'masters'},
@@ -607,6 +671,77 @@ const kpi = (label, val, sub, opts={}) => `
   </div>`;
 
 /* ============ DASHBOARD VIEW ============ */
+/* ---------- shared filter bar --------------------------------------------
+   One markup builder and one wiring function, used by the Dashboard and the
+   Pending POs view. Two copies of this would drift apart within a week.
+   -------------------------------------------------------------------------- */
+function filterBarHTML(){
+  const whs   = [...new Set(ORDERS.map(o=>o.wh))].sort();
+  const plats = [...new Set(ORDERS.map(o=>o.platform))].sort();
+  const chans = [...new Set(ORDERS.map(o=>o.channel))].filter(Boolean).sort();
+  const cats  = [...new Set(DATA.poLines.map(l=>l.category))].sort();
+  const oids  = [...new Set(ORDERS.map(o=>o.orderId))].sort();
+  const apds  = [...new Set(ORDERS.map(o=>o.apptDate).filter(Boolean))]
+                .sort((a,b)=>(pDMY(a)||0)-(pDMY(b)||0));
+  return `
+  <div class="toolbar">
+    <input type="text" id="f-oid" list="oidlist" placeholder="Order ID" style="width:130px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
+    <datalist id="oidlist">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
+    <select id="f-wh" title="Warehouse"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
+    <select id="f-ch" title="Channel (raw value from the sheet)"><option value="">All channels</option>${chans.map(c=>`<option ${FS.ch===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <select id="f-plat" title="Platform (rolled up)"><option value="">All platforms</option>${plats.map(x=>`<option ${FS.plat===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
+    <select id="f-apd" title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${apds.map(d=>`<option ${FS.apd===d?'selected':''}>${esc(d)}</option>`).join('')}</select>
+    <select id="f-cat" title="Category"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <input type="date" id="f-from" value="${FS.from}" title="Order date from"><input type="date" id="f-to" value="${FS.to}" title="Order date to">
+    <button class="btn ghost" id="f-clear">Clear<span id="f-count"></span></button>
+  </div>
+  <div id="scopebanner"></div>`;
+}
+
+/* Any filter change rescopes the derived figures, then repaints the current
+   view. Both views call this, so switching tabs keeps the same scope. */
+function applyFilters(){
+  const anyActive = Object.values(FS).some(v => v !== '');
+  recompute(anyActive ? filteredOrders() : null);
+  paintScopeBanner();
+  paintFilterCount();
+  const cur = document.querySelector('.view.active')?.id;
+  if (cur === 'view-dashboard') renderDashboard();
+  else if (cur === 'view-pos') { PAGE = 1; renderPOTable(); }
+}
+
+function wireFilterBar(onChange){
+  const text = [['f-oid','oid'],['f-q','q']];
+  const sel  = [['f-wh','wh'],['f-ch','ch'],['f-plat','plat'],['f-apd','apd'],
+                ['f-ap','ap'],['f-cat','cat'],['f-from','from'],['f-to','to']];
+  text.forEach(([id,k])=>{ const el=$('#'+id); if(el) el.addEventListener('input', e=>{FS[k]=e.target.value; onChange();}); });
+  sel.forEach(([id,k])=>{ const el=$('#'+id); if(el) el.addEventListener('change', e=>{FS[k]=e.target.value; onChange();}); });
+  const c=$('#f-clear'); if(c) c.addEventListener('click', ()=>{ Object.keys(FS).forEach(k=>FS[k]=''); onChange(); });
+  paintFilterCount();
+}
+
+/* A filtered KPI screenshotted and forwarded as "the pending PO number" is the
+   real risk of putting filters on an exec dashboard. So when a filter is on,
+   say so loudly and show the denominator. */
+function paintScopeBanner(){
+  const el = $('#scopebanner'); if(!el) return;
+  const active = Object.entries(FS).filter(([,v])=>v!=='');
+  if (!active.length){ el.innerHTML=''; return; }
+  const LABEL = {oid:'Order ID', wh:'Warehouse', ch:'Channel', plat:'Platform',
+                 apd:'Appt date', ap:'Appt status', cat:'Category',
+                 from:'From', to:'To', q:'Search'};
+  const total = ORDERS.length;
+  const shown = SCOPE_ORDERS ? SCOPE_ORDERS.length : total;
+  el.innerHTML = `<div class="note" style="border-left:3px solid var(--warn);margin-bottom:12px">
+    <b>Filtered view — not the full PO book.</b>
+    Showing <b>${fmtIN(shown)}</b> of ${fmtIN(total)} POs.
+    ${active.map(([k,v])=>`${LABEL[k]||k}: <b>${esc(v)}</b>`).join(' &middot; ')}
+    <a href="#" id="scope-clear" style="color:var(--accent);margin-left:8px">Clear all</a></div>`;
+  $('#scope-clear')?.addEventListener('click', e=>{
+    e.preventDefault(); Object.keys(FS).forEach(k=>FS[k]=''); applyFilters();
+  });
+}
+
 function renderDashboard(){
   const v = $('#view-dashboard');
   const whData = whRows.map(w => ({label:w, key:w, value:P.wh.values[w].total, n:P.wh.counts[w].total, sub:undefined, tipTitle:`${w} — ${P.wh.counts[w].total} POs`}));
@@ -625,6 +760,7 @@ function renderDashboard(){
   const fPO = F.reduce((s,r)=>s+r.poVal,0), fSO = F.reduce((s,r)=>s+r.soVal,0), fINV = F.reduce((s,r)=>s+r.invVal,0), fGRN = F.reduce((s,r)=>s+r.grnVal,0);
 
   v.innerHTML = `
+  ${filterBarHTML()}
   <div class="note"><b>Live from the sheet.</b> Every figure on this page is derived from the <b>${DATA._source?.tabs?.poLines || "PO lines"}</b> tab — ${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines across ${whRows.length} warehouse(s), ${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))}. Nothing here is precomputed. <a href="#" data-go="about" style="color:var(--accent)">Check row counts against the sheet</a>.</div>
   <div class="kpis">
     ${kpi('Total pending POs', fmtIN(GT_N), `${whRows.length} warehouse(s) · ${PLATS.filter(p=>P.wh.counts['Grand Total'][p]>0).length} platform(s)`, {go:'pos'})}
@@ -663,7 +799,7 @@ function renderDashboard(){
         <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${note}</div></div>`).join('')}
     </div>
     <div class="card alerts"><div class="hd"><div><h3>Alerts & exceptions</h3><div class="sub">Rule-based, recomputed from the snapshot</div></div></div>
-      ${ALERTS.map(a=>`<div class="al"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div><div>${esc(a.t)}</div><small>${esc(a.s)}</small></div></div>`).join('')}
+      ${buildAlerts().map(a=>`<div class="al"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div><div>${esc(a.t)}</div><small>${esc(a.s)}</small></div></div>`).join('')}
     </div>
   </div>
   <div class="grid g32">
@@ -688,6 +824,7 @@ function renderDashboard(){
   $('#ch-age').append(colSVG({data:ageAgg.map(b=>({label:b.label,value:b.v,n:b.n,sub:`${b.n} POs`,tipTitle:b.label})), tipRows:d=>`<div class="r"><span>POs</span><span>${d.n}</span></div><div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div>`}));
   $('#ch-cat').append(barSVG({data:catData, tipRows:d=>`<div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div><div class="r"><span>Qty</span><span>${fmtIN(d.q)} units</span></div>`}));
   $('#qa-export')?.addEventListener('click', exportCSV);
+  wireFilterBar(applyFilters); paintScopeBanner();
   $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); FS.ap='Appointment Pending'; syncFilters(); renderPOTable(); });
 }
 
@@ -755,17 +892,14 @@ function renderPOs(){
     <button class="btn" id="bulkbtn">Bulk remark</button>
     <button class="btn primary" id="exportbtn">⬇ Export CSV</button>
   </div>
+  <div id="scopebanner"></div>
   <div class="card" style="padding:0">
     <div class="scrollx"><table id="potable"></table></div>
     <div class="pager" id="pager" style="padding:0 14px 12px"></div>
   </div>`;
-  // Text inputs fire on every keystroke; selects and date pickers on change.
-  [['f-q','q'],['f-oid','oid']].forEach(([id,k])=>
-    $('#'+id).addEventListener('input', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable(); paintFilterCount();}));
-  [['f-wh','wh'],['f-plat','plat'],['f-ch','ch'],['f-ap','ap'],['f-apd','apd'],['f-cat','cat'],['f-from','from'],['f-to','to']].forEach(([id,k])=>
-    $('#'+id).addEventListener('change', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable(); paintFilterCount();}));
-  paintFilterCount();
-  $('#f-clear').addEventListener('click', ()=>{Object.keys(FS).forEach(k=>FS[k]=''); PAGE=1; renderPOs(); renderPOTable();});
+  // Same wiring as the Dashboard, so a filter set on one tab holds on the other.
+  wireFilterBar(applyFilters);
+  paintScopeBanner();
   $('#exportbtn').addEventListener('click', exportCSV);
   $('#bulkbtn').addEventListener('click', ()=>{
     if(!SEL.size){ alertToast('Select rows first (checkboxes).'); return; }
@@ -1062,6 +1196,9 @@ function goView(name){
   $$('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.view===name));
   const [t,c] = TITLES[name]; $('#viewtitle').textContent=t; $('#crumb').textContent=c;
   if(name==='podetail') renderPODetail();
+  // Repaint on entry: the scope may have changed while another tab was open.
+  else if(name==='dashboard') renderDashboard();
+  else if(name==='pos') renderPOs();
   $('#content').scrollTop = 0;
 }
 document.addEventListener('click', e=>{
@@ -1072,8 +1209,9 @@ function toggleMenu(m){ const was = m.style.display==='block'; $$('.dd-menu').fo
 $$('#nav a').forEach(a=>a.addEventListener('click', e=>{e.preventDefault(); goView(a.dataset.view);}));
 $('#pill-pos').textContent = GT_N;
 /* bell */
-$('#bellbadge').textContent = ALERTS.filter(a=>a.sev!=='i').length;
-$('#bellmenu').innerHTML = ALERTS.map(a=>`<div class="al" style="padding:8px 6px;display:flex;gap:9px"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div style="font-size:12px">${esc(a.t)}<small style="display:block;color:var(--muted)">${esc(a.s)}</small></div></div>`).join('');
+const _AL = buildAlerts();
+$('#bellbadge').textContent = _AL.filter(a=>a.sev!=='i').length;
+$('#bellmenu').innerHTML = _AL.map(a=>`<div class="al" style="padding:8px 6px;display:flex;gap:9px"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div style="font-size:12px">${esc(a.t)}<small style="display:block;color:var(--muted)">${esc(a.s)}</small></div></div>`).join('');
 $('#bellbtn').addEventListener('click', e=>{e.stopPropagation(); toggleMenu($('#bellmenu'));});
 /* theme */
 $('#themebtn').addEventListener('click', ()=>{
