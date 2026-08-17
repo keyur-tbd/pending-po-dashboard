@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pending PO Dashboard — The Bakers Dozen SCM</title>
+<style>
+:root{
+  color-scheme: light;
+  --surface-1:#ffffff; --page:#f4f6fa; --sidebar:#0f2a4a; --sidebar-2:#16375e;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781; --grid:#e1e0d9; --baseline:#c3c2b7;
+  --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b; --good-text:#006300;
+  --seq-250:#86b6ef; --seq-400:#3987e5; --seq-450:#2a78d6; --seq-550:#1c5cab; --seq-650:#104281;
+  --accent:#2a78d6; --accent-soft:#e8f1fc;
+  --shadow:0 1px 2px rgba(15,42,74,.06),0 4px 12px rgba(15,42,74,.06);
+  --radius:12px;
+}
+[data-theme="dark"]{
+  color-scheme: dark;
+  --surface-1:#1e2530; --page:#151a22; --sidebar:#10151d; --sidebar-2:#1a2230;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --baseline:#383835;
+  --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --good-text:#0ca30c;
+  --accent:#3987e5; --accent-soft:#1c2c42;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);font-size:13.5px;display:flex;overflow:hidden}
+/* ---------- sidebar ---------- */
+.sidebar{width:224px;min-width:224px;background:var(--sidebar);color:#dbe6f3;display:flex;flex-direction:column;height:100vh}
+.brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#3987e5,#1c5cab);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:15px}
+.brand b{font-size:14px;color:#fff;display:block;line-height:1.15}
+.brand span{font-size:11px;color:#9db4cf}
+.nav{padding:10px 8px;flex:1;overflow-y:auto}
+.nav .sect{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#7e95b3;padding:12px 10px 6px}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#c9d7e8;text-decoration:none;font-size:13px;margin-bottom:2px;cursor:pointer}
+.nav a svg{width:16px;height:16px;flex:none;opacity:.85}
+.nav a:hover{background:var(--sidebar-2)}
+.nav a.active{background:var(--accent);color:#fff;font-weight:600}
+.nav a .pill{margin-left:auto;background:rgba(255,255,255,.15);border-radius:99px;font-size:10.5px;padding:1px 7px;font-weight:600}
+.sidenote{margin:10px;padding:10px;background:rgba(255,255,255,.06);border-radius:9px;font-size:11px;color:#9db4cf;line-height:1.45}
+/* ---------- main ---------- */
+.main{flex:1;display:flex;flex-direction:column;height:100vh;min-width:0}
+.topbar{height:56px;background:var(--surface-1);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 20px;flex:none}
+.topbar h1{font-size:15.5px;font-weight:650}
+.topbar .crumb{color:var(--muted);font-size:12px}
+.gsearch{margin-left:auto;position:relative}
+.gsearch input{width:280px;padding:7px 12px 7px 32px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--ink);font-size:13px;outline:none}
+.gsearch input:focus{border-color:var(--accent)}
+.gsearch svg{position:absolute;left:9px;top:8px;width:15px;height:15px;color:var(--muted)}
+.gresults{position:absolute;top:38px;right:0;width:360px;max-height:320px;overflow:auto;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);z-index:60;display:none}
+.gresults .hit{padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12.5px}
+.gresults .hit:hover{background:var(--accent-soft)}
+.iconbtn{position:relative;width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface-1);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-2)}
+.iconbtn:hover{background:var(--page)}
+.iconbtn .badge{position:absolute;top:-5px;right:-5px;background:var(--crit);color:#fff;font-size:9.5px;font-weight:700;border-radius:99px;padding:1px 5px}
+.avatar{width:32px;height:32px;border-radius:99px;background:linear-gradient(135deg,#eb6834,#eda100);color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.content{flex:1;overflow-y:auto;padding:18px 20px 40px}
+.view{display:none}.view.active{display:block}
+/* ---------- cards & layout ---------- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;box-shadow:var(--shadow);cursor:default}
+.kpi .lbl{font-size:11.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.kpi .lbl .dot{width:8px;height:8px;border-radius:99px;flex:none}
+.kpi .val{font-size:26px;font-weight:680;margin-top:4px;letter-spacing:-.01em}
+.kpi .sub{font-size:11px;color:var(--muted);margin-top:3px}
+.kpi.clickable{cursor:pointer}.kpi.clickable:hover{border-color:var(--accent)}
+.grid{display:grid;gap:14px;margin-bottom:14px}
+.g2{grid-template-columns:1fr 1fr}.g32{grid-template-columns:3fr 2fr}.g23{grid-template-columns:2fr 3fr}
+@media(max-width:1100px){.g2,.g32,.g23{grid-template-columns:1fr}}
+.card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;min-width:0}
+.card h3{font-size:13px;font-weight:650;margin-bottom:2px}
+.card .sub{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+.card .hd{display:flex;align-items:flex-start;gap:8px}
+.card .hd .sp{margin-left:auto;display:flex;gap:6px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px;color:var(--ink-2);margin:6px 0 2px}
+.legend .k{display:flex;align-items:center;gap:5px}
+.legend .sw{width:10px;height:10px;border-radius:3px}
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--grid);font-weight:600;white-space:nowrap;cursor:pointer;user-select:none}
+td{padding:8px 10px;border-bottom:1px solid var(--grid);white-space:nowrap}
+tr:hover td{background:var(--accent-soft)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px}
+.tag.blue{background:var(--accent-soft);color:var(--accent)}
+.tag.amber{background:rgba(250,178,25,.15);color:#8a6100}
+[data-theme="dark"] .tag.amber{color:#fab219}
+.tag.red{background:rgba(208,59,59,.12);color:var(--crit)}
+.tag.green{background:rgba(12,163,12,.12);color:var(--good-text)}
+.tag.gray{background:var(--page);color:var(--ink-2)}
+/* toolbar / filters */
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.toolbar .spacer{margin-left:auto}
+select,.btn,input[type=text],input[type=date]{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-1);color:var(--ink);font-size:12.5px;outline:none}
+select:focus,input:focus{border-color:var(--accent)}
+.btn{cursor:pointer;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--page)}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.ghost{border-color:transparent;color:var(--accent)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{font-size:11.5px;background:var(--accent-soft);color:var(--accent);border-radius:99px;padding:3px 10px;display:inline-flex;gap:6px;align-items:center}
+.chip b{cursor:pointer}
+/* alert list */
+.alerts .al{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--grid);font-size:12.5px;align-items:flex-start}
+.alerts .al:last-child{border:none}
+.al .ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none;font-size:13px}
+.al .ic.c{background:rgba(208,59,59,.12);color:var(--crit)}
+.al .ic.w{background:rgba(250,178,25,.15);color:#8a6100}
+[data-theme="dark"] .al .ic.w{color:#fab219}
+.al .ic.i{background:var(--accent-soft);color:var(--accent)}
+.al small{color:var(--muted);display:block;margin-top:1px}
+/* activity */
+.tl{position:relative;padding-left:18px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--grid)}
+.tl .ev{position:relative;padding:7px 0 7px 8px;font-size:12.5px}
+.tl .ev::before{content:"";position:absolute;left:-17px;top:12px;width:8px;height:8px;border-radius:99px;background:var(--accent);box-shadow:0 0 0 2px var(--surface-1)}
+.tl .ev small{color:var(--muted);display:block}
+/* charts */
+.chartbox{position:relative}
+svg text{font-family:inherit}
+.tip{position:fixed;z-index:100;background:var(--surface-1);border:1px solid var(--border);box-shadow:var(--shadow);border-radius:9px;padding:8px 11px;font-size:12px;pointer-events:none;display:none;max-width:260px}
+.tip b{display:block;margin-bottom:3px}
+.tip .r{display:flex;gap:8px;justify-content:space-between}
+.tip .r span:last-child{font-variant-numeric:tabular-nums;font-weight:600}
+/* meter */
+.meter{height:8px;border-radius:99px;background:var(--seq-250);overflow:hidden;position:relative}
+[data-theme="dark"] .meter{background:#1c2c42}
+.meter i{display:block;height:100%;border-radius:99px}
+/* detail page */
+.dethead{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.dethead .big{font-size:20px;font-weight:700}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
+.kv dt{color:var(--muted)}.kv dd{font-weight:550}
+.pcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:14px}
+/* misc */
+.note{background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--ink-2);margin-bottom:14px;line-height:1.5}
+.note b{color:var(--ink)}
+.pager{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin-top:10px;font-size:12px;color:var(--ink-2)}
+.pager button{width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--surface-1);cursor:pointer;color:var(--ink)}
+.pager button.cur{background:var(--accent);color:#fff;border-color:var(--accent)}
+.dropdown{position:relative}
+.dd-menu{position:absolute;right:0;top:38px;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);padding:8px;z-index:50;display:none;min-width:190px;max-height:300px;overflow:auto}
+.dd-menu label{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:5px 6px;border-radius:6px;cursor:pointer}
+.dd-menu label:hover{background:var(--accent-soft)}
+.empty{padding:30px;text-align:center;color:var(--muted);font-size:13px}
+.scrollx{overflow-x:auto}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--baseline);border-radius:99px;border:2px solid var(--page)}
+@media(max-width:860px){.sidebar{display:none}.gsearch input{width:150px}}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo">BD</div>
+    <div><b>The Bakers Dozen</b><span>SCM · Pending PO</span></div>
+  </div>
+  <nav class="nav" id="nav">
+    <div class="sect">Operations</div>
+    <a data-view="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
+    <a data-view="pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="4.5" cy="18" r="1.5"/></svg>Pending POs<span class="pill" id="pill-pos"></span></a>
+    <a data-view="billing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg>Billing status</a>
+    <div class="sect">Reference</div>
+    <a data-view="masters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Masters</a>
+    <a data-view="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>Data coverage</a>
+  </nav>
+  <div class="sidenote">Snapshot of the SCM Google Sheet · 11 Aug 2026.<br>Summaries: Report Format tab (all 6 WHs). Line detail: Uni Commerce extract (AHM & KOL).</div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div><h1 id="viewtitle">Pending PO Dashboard</h1><div class="crumb" id="crumb">Home / Dashboard</div></div>
+    <div class="gsearch">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="gsearch" type="text" placeholder="Search PO, item, platform…  ( / )">
+      <div class="gresults" id="gresults"></div>
+    </div>
+    <button class="iconbtn" id="themebtn" title="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg></button>
+    <div class="dropdown">
+      <button class="iconbtn" id="bellbtn" title="Alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="badge" id="bellbadge"></span></button>
+      <div class="dd-menu" id="bellmenu" style="width:320px"></div>
+    </div>
+    <div class="avatar" title="SCM Ops">SO</div>
+  </header>
+  <div class="content" id="content">
+
+    <!-- ============ DASHBOARD ============ -->
+    <section class="view active" id="view-dashboard"></section>
+
+    <!-- ============ PENDING PO MGMT ============ -->
+    <section class="view" id="view-pos"></section>
+
+    <!-- ============ PO DETAILS ============ -->
+    <section class="view" id="view-podetail"></section>
+
+    <!-- ============ BILLING ============ -->
+    <section class="view" id="view-billing"></section>
+
+    <!-- ============ MASTERS ============ -->
+    <section class="view" id="view-masters"></section>
+
+    <!-- ============ ABOUT / COVERAGE ============ -->
+    <section class="view" id="view-about"></section>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+<script type="module">
+/* ======================= LIVE DATA (Google Sheets) =======================
+   The static data blob that used to live here has been replaced by a fetch
+   to /api/po-data. Everything below this block is unchanged and still works,
+   because loadData() returns an object with exactly the same shape --
+   including a `pivot` that is now derived from the PO lines rather than
+   pasted in, so the KPI cards and the PO table can never disagree.
+   ======================================================================== */
+const DATA_ENDPOINT = '/api/po-data';
+const PLATFORM_ORDER = ['Amazon','Big Basket','Blinkit','FirstClub','FK','Swiggy','Milk Basket','Zepto'];
+
+const DATA = await (async function loadData(){
+
+  const screen = document.createElement('div');
+  screen.style.cssText = 'position:fixed;inset:0;z-index:999;display:flex;align-items:center;'
+    + 'justify-content:center;text-align:center;padding:24px;background:var(--page);color:var(--ink);'
+    + 'font:14px system-ui,-apple-system,"Segoe UI",sans-serif';
+  screen.innerHTML = '<div><b>Loading purchase orders</b><br>'
+    + '<span style="color:var(--muted);font-size:12.5px">Reading the source sheet.</span></div>';
+  document.body.append(screen);
+
+  const fail = (title, detail, hint) => {
+    screen.innerHTML = '<div style="max-width:560px;line-height:1.5">'
+      + '<b style="font-size:15px">' + title + '</b>'
+      + '<div style="color:var(--ink-2);font-size:12.5px;margin-top:8px">' + detail + '</div>'
+      + '<div style="color:var(--muted);font-size:12px;margin-top:14px">' + hint + '</div></div>';
+  };
+
+  let d;
+  try {
+    const res = await fetch(DATA_ENDPOINT);
+    d = await res.json();
+    if (!res.ok) throw new Error(d.detail || d.error || ('Request failed (' + res.status + ')'));
+  } catch (err) {
+    fail('The dashboard could not read the sheet',
+         String(err && err.message ? err.message : err),
+         'Open <code>/api/po-data?debug=1</code> in a new tab to see which tabs and columns the sheet is returning.');
+    throw err;
+  }
+
+  if (!d.poLines || !d.poLines.length) {
+    fail('No purchase orders found',
+         'The sheet was read successfully but the PO Lines tab returned no rows.',
+         'Check that the tab has a header row in row 1 and data below it.');
+    throw new Error('no PO lines');
+  }
+
+  /* ---- rebuild the pivot from the PO lines (PO counts, not line counts) ---- */
+  const platOfLocal = ch => {
+    ch = (ch || '').toUpperCase();
+    if (ch.startsWith('BLINKIT')) return 'Blinkit';
+    if (ch.startsWith('SWIGGY')) return 'Swiggy';
+    if (ch.startsWith('FLIPKART')) return 'FK';
+    if (ch.startsWith('AMAZON')) return 'Amazon';
+    if (ch.startsWith('ZEPTO')) return 'Zepto';
+    if (ch.startsWith('MILK')) return 'Milk Basket';
+    if (ch.startsWith('BB') || ch.startsWith('BIG')) return 'Big Basket';
+    return 'Other';
+  };
+
+  const orders = new Map();
+  d.poLines.forEach(l => {
+    if (!orders.has(l.orderId)) {
+      orders.set(l.orderId, { wh: l.wh || 'Unmapped', orderDate: l.orderDate,
+        apptDate: l.apptDate, platform: platOfLocal(l.channel), value: 0 });
+    }
+    orders.get(l.orderId).value += (+l.value || 0);
+  });
+  const O = [...orders.values()];
+
+  const seen = [...new Set(O.map(o => o.platform))];
+  const platforms = PLATFORM_ORDER.concat(seen.filter(p => !PLATFORM_ORDER.includes(p)));
+
+  const blank = () => { const o = { total: 0 }; platforms.forEach(p => o[p] = 0); return o; };
+  const make = keyOf => {
+    const counts = {}, values = {};
+    O.forEach(o => {
+      const k = keyOf(o); if (!k) return;
+      if (!counts[k]) { counts[k] = blank(); values[k] = blank(); }
+      const p = o.platform;
+      if (counts[k][p] === undefined) { counts[k][p] = 0; values[k][p] = 0; }
+      counts[k][p]++; counts[k].total++;
+      values[k][p] += o.value; values[k].total += o.value;
+    });
+    const gc = blank(), gv = blank();
+    Object.keys(counts).forEach(k => Object.keys(counts[k]).forEach(p => {
+      gc[p] = (gc[p] || 0) + counts[k][p];
+      gv[p] = (gv[p] || 0) + values[k][p];
+    }));
+    counts['Grand Total'] = gc; values['Grand Total'] = gv;
+    return { platforms, counts, values };
+  };
+
+  d.pivot = {
+    wh:          make(o => o.wh),
+    poDate:      make(o => o.orderDate),
+    appointment: make(o => o.apptDate || 'Appointment Pending')
+  };
+
+  /* ---- stamp the data age so a cached page is never mistaken for live ---- */
+  const crumb = document.querySelector('.topbar .crumb');
+  if (crumb && d.fetchedAt) {
+    crumb.textContent = 'Data as of ' + new Date(d.fetchedAt).toLocaleString('en-IN');
+  }
+
+  screen.remove();
+  return d;
+})();
+/* ============ Pending PO Dashboard app ============ */
+'use strict';
+const SNAP = new Date(2026, 7, 11); // 11 Aug 2026 snapshot
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- formatting ---------- */
+const fmtIN = n => { // Indian digit grouping
+  n = Math.round(n); const s = String(Math.abs(n)); let r;
+  if (s.length <= 3) r = s;
+  else { const last3 = s.slice(-3); r = s.slice(0,-3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + last3; }
+  return (n<0?'-':'') + r;
+};
+const fmtC = n => { // compact ₹ (lakh / crore)
+  const a = Math.abs(n);
+  if (a >= 1e7) return '₹' + (n/1e7).toFixed(2).replace(/\.00$/,'') + ' Cr';
+  if (a >= 1e5) return '₹' + (n/1e5).toFixed(2).replace(/\.00$/,'') + ' L';
+  if (a >= 1e3) return '₹' + (n/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+  return '₹' + fmtIN(n);
+};
+const fmtV = n => '₹' + fmtIN(n);
+const pDMY = s => { const m = String(s).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); return m ? new Date(+m[3], +m[2]-1, +m[1]) : null; };
+const pMDY = s => { const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? new Date(+m[3], +m[1]-1, +m[2]) : null; };
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtD = d => d ? `${d.getDate()} ${MON[d.getMonth()]}` : '—';
+const fmtDF = d => d ? `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}` : '—';
+const days = d => d ? Math.round((SNAP - d)/86400000) : null;
+
+/* ---------- palette ---------- */
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const PLATS = DATA.pivot.wh.platforms; // fixed entity order
+const PCOLOR = {}; PLATS.forEach((p,i)=> PCOLOR[p] = `var(--s${i+1})`);
+
+/* ---------- derived (full universe – Report Format pivot) ---------- */
+const P = DATA.pivot;
+const GT_N = P.wh.counts['Grand Total'].total, GT_V = P.wh.values['Grand Total'].total;
+const whRows = Object.keys(P.wh.counts).filter(k=>k!=='Grand Total');
+const dateRows = Object.keys(P.poDate.counts).filter(k=>k!=='Grand Total');
+const apRows = Object.keys(P.appointment.counts).filter(k=>k!=='Grand Total');
+const AP_PEND_N = P.appointment.counts['Appointment Pending'].total;
+const AP_PEND_V = P.appointment.values['Appointment Pending'].total;
+const TODAY_KEY = (() => { const d = new Date(), p = n => String(n).padStart(2,'0');
+  return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`; })();
+const TODAY_N = P.appointment.counts[TODAY_KEY]?.total || 0;
+const TODAY_V = P.appointment.values[TODAY_KEY]?.total || 0;
+// ageing from PO-date pivot
+const AGE_BUCKETS = [['0–2 days',0,2],['3–5 days',3,5],['6–8 days',6,8],['9+ days',9,99]];
+const ageAgg = AGE_BUCKETS.map(([lbl,lo,hi]) => {
+  let n=0,v=0;
+  dateRows.forEach(dr => { const a = days(pDMY(dr)); if (a>=lo && a<=hi){ n+=P.poDate.counts[dr].total; v+=P.poDate.values[dr].total; } });
+  return {label:lbl, n, v};
+});
+const OVERDUE = ageAgg.filter(b=>b.label!=='0–2 days'&&b.label!=='3–5 days').reduce((s,b)=>({n:s.n+b.n,v:s.v+b.v}),{n:0,v:0}); // 6+ days
+const CRIT = ageAgg[3]; // 9+ days
+
+/* ---------- line-level detail (Uni Commerce extract) ---------- */
+const platOf = ch => {
+  ch = (ch||'').toUpperCase();
+  if (ch.startsWith('BLINKIT')) return 'Blinkit';
+  if (ch.startsWith('SWIGGY')) return 'Swiggy';
+  if (ch.startsWith('FLIPKART')) return 'FK';
+  if (ch.startsWith('AMAZON')) return 'Amazon';
+  if (ch.startsWith('ZEPTO')) return 'Zepto';
+  if (ch.startsWith('MILK')) return 'Milk Basket';
+  if (ch.startsWith('BB')||ch.startsWith('BIG')) return 'Big Basket';
+  return 'Other';
+};
+const catOf = it => (DATA.items[it]?.category) || DATA.itemCat[it] || 'UNMAPPED';
+const nameOf = it => (DATA.items[it]?.name) || DATA.fillRate.find(f=>f.item===it)?.itemName || it;
+DATA.poLines.forEach(l => { l.platform = platOf(l.channel); l.category = catOf(l.item); l.itemName = nameOf(l.item);
+  l.oDate = pDMY(l.orderDate); l.aDate = pDMY(l.apptDate); l.age = days(l.oDate);
+  l.apStatus = l.aDate ? 'Scheduled' : 'Appointment Pending'; });
+// group to orders
+const ORDERS = (() => { const m = new Map();
+  DATA.poLines.forEach(l => { if(!m.has(l.orderId)) m.set(l.orderId, {orderId:l.orderId, wh:l.wh, channel:l.channel, platform:l.platform,
+      apptDate:l.apptDate, aDate:l.aDate, apStatus:l.apStatus, orderDate:l.orderDate, oDate:l.oDate, age:l.age, custCode:l.custCode,
+      shipTo:l.shipTo, custRef:l.custRef, lines:[], value:0, qty:0});
+    const o = m.get(l.orderId); o.lines.push(l); o.value += l.value; o.qty += l.qty; });
+  return [...m.values()].sort((a,b)=> b.oDate-a.oDate); })();
+const REMARKS = {}; // in-memory, session only
+
+/* ---------- data-quality findings (computed) ---------- */
+const DQ = (() => {
+  const items = DATA.items, icat = DATA.itemCat;
+  const mism = Object.keys(items).filter(k => icat[k] && items[k].category.trim().toUpperCase() !== icat[k].trim().toUpperCase());
+  const noCarton = Object.keys(items).filter(k => !items[k].carton);
+  const noAppt = DATA.poLines.filter(l=>!l.aDate).length;
+  const noCat = Object.keys(icat).filter(k => !items[k]).length;
+  return { mism: mism.length, noCarton: noCarton.length, noAppt, noCat, mismList: mism };
+})();
+
+/* ---------- alerts ---------- */
+const apPendByPlat = PLATS.map(p => ({p, n: P.appointment.counts['Appointment Pending'][p]||0, v: P.appointment.values['Appointment Pending'][p]||0})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+const ALERTS = [
+  {sev:'c', t:`${CRIT.n} POs are 9+ days old (${fmtC(CRIT.v)})`, s:'Raised 30 Jul – 2 Aug and still pending. Prioritise dispatch or closure.', go:'pos'},
+  {sev:'c', t:`${AP_PEND_N} POs have no appointment (${fmtC(AP_PEND_V)})`, s:`Largest: ${apPendByPlat[0]?.p} (${apPendByPlat[0]?.n} POs). Book delivery slots to avoid expiry.`, go:'pos'},
+  {sev:'w', t:`${TODAY_N} appointments due today (${fmtC(TODAY_V)})`, s:'Confirm vehicle placement and dispatch readiness for 11 Aug.', go:'pos'},
+  {sev:'w', t:`Fill-rate risk on Blinkit Gujarat SOs`, s:'Dispatch-vs-sales shows only 1 of 67 PO lines invoiced so far.', go:'billing'},
+  {sev:'i', t:`${DQ.mism} item-category mismatches between masters`, s:'Carton/MRP master vs Item Category master disagree; summary by category may vary.', go:'masters'},
+  {sev:'i', t:`${DQ.noCarton} items missing carton size`, s:'Carton planning and fill optimisation unavailable for these SKUs.', go:'masters'},
+];
+
+/* ---------- tooltip ---------- */
+const tip = $('#tip');
+function showTip(html, ev){ tip.innerHTML = html; tip.style.display='block'; moveTip(ev); }
+function moveTip(ev){ const w=tip.offsetWidth,h=tip.offsetHeight;
+  let x=ev.clientX+14,y=ev.clientY+12;
+  if(x+w>innerWidth-8)x=ev.clientX-w-12; if(y+h>innerHeight-8)y=ev.clientY-h-10;
+  tip.style.left=x+'px'; tip.style.top=y+'px'; }
+function hideTip(){ tip.style.display='none'; }
+
+/* ---------- chart helpers (SVG) ---------- */
+function niceMax(m){ if(m<=0) return 1; const p = Math.pow(10, Math.floor(Math.log10(m))); for(const f of [1,2,2.5,5,10]){ if(m <= f*p) return f*p; } return 10*p; }
+function colSVG(opts){ // vertical columns
+  const {data, h=220, fmt=fmtC, tipRows, band:bandMin=46} = opts;
+  const padL=52, padR=20, padT=12, padB=34, W=Math.max(320, data.length*bandMin+padL+padR);
+  const max = niceMax(Math.max(...data.map(d=>d.value)));
+  const ph = h-padT-padB, pw = W-padL-padR, band = pw/data.length, bw = Math.min(24, band*0.55);
+  let g = '';
+  for(let i=0;i<=4;i++){ const y=padT+ph-ph*i/4, v=max*i/4;
+    g += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${padL-7}" y="${y+4}" text-anchor="end" font-size="10.5" fill="var(--muted)" style="font-variant-numeric:tabular-nums">${v>=1e5?fmtC(v).replace('₹',''):fmtIN(v)}</text>`; }
+  data.forEach((d,i)=>{ const x=padL+band*i+(band-bw)/2, bh=ph*d.value/max, y=padT+ph-bh, r=Math.min(4,bh);
+    const col = d.color || 'var(--s1)';
+    g += `<path class="col" data-i="${i}" d="M${x},${padT+ph} L${x},${y+r} Q${x},${y} ${x+r},${y} L${x+bw-r},${y} Q${x+bw},${y} ${x+bw},${y+r} L${x+bw},${padT+ph} Z" fill="${col}"/>`;
+    g += `<text x="${x+bw/2}" y="${h-padB+14}" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">${esc(d.label)}</text>`;
+    if(d.sub!==undefined) g += `<text x="${x+bw/2}" y="${h-padB+26}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(d.sub)}</text>`;
+  });
+  g += `<line x1="${padL}" y1="${padT+ph}" x2="${W-padR}" y2="${padT+ph}" stroke="var(--baseline)" stroke-width="1"/>`;
+  const el = document.createElement('div'); el.className='chartbox scrollx';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${h}" width="100%" style="min-width:${Math.min(W,640)}px" height="${h}">${g}</svg>`;
+  el.addEventListener('mousemove', ev=>{ const t=ev.target.closest('.col'); if(!t){hideTip();return;}
+    const d = data[+t.dataset.i];
+    showTip(`<b>${esc(d.tipTitle||d.label)}</b>` + (tipRows?tipRows(d):`<div class="r"><span>Value</span><span>${fmt(d.value)}</span></div>`), ev); });
+  el.addEventListener('mouseleave', hideTip);
+  return el;
+}
+function barSVG(opts){ // horizontal bars
+  const {data, fmt=fmtC, labelW=118, tipRows} = opts;
+  const rowH=30, padT=6, W=560, padR=70;
+  const max = niceMax(Math.max(...data.map(d=>d.value)));
+  const pw = W-labelW-padR, h = padT*2+rowH*data.length;
+  let g='';
+  data.forEach((d,i)=>{ const y=padT+rowH*i+ (rowH-16)/2, bw=Math.max(2,pw*d.value/max), r=Math.min(4,bw);
+    const col = d.color || 'var(--s1)';
+    g += `<text x="${labelW-8}" y="${y+12}" text-anchor="end" font-size="11.5" fill="var(--ink-2)">${esc(d.label)}</text>`;
+    g += `<path class="col" data-i="${i}" d="M${labelW},${y} L${labelW+bw-r},${y} Q${labelW+bw},${y} ${labelW+bw},${y+4} L${labelW+bw},${y+12} Q${labelW+bw},${y+16} ${labelW+bw-r},${y+16} L${labelW},${y+16} Z" fill="${col}"/>`;
+    g += `<text x="${labelW+bw+6}" y="${y+12}" font-size="11" fill="var(--ink)" font-weight="600" style="font-variant-numeric:tabular-nums">${fmt(d.value)}</text>`;
+  });
+  g += `<line x1="${labelW}" y1="${padT}" x2="${labelW}" y2="${h-padT}" stroke="var(--baseline)" stroke-width="1"/>`;
+  const el = document.createElement('div'); el.className='chartbox';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${h}" width="100%">${g}</svg>`;
+  el.addEventListener('mousemove', ev=>{ const t=ev.target.closest('.col'); if(!t){hideTip();return;}
+    const d=data[+t.dataset.i]; showTip(`<b>${esc(d.tipTitle||d.label)}</b>`+(tipRows?tipRows(d):`<div class="r"><span>Value</span><span>${fmt(d.value)}</span></div>`), ev); });
+  el.addEventListener('mouseleave', hideTip);
+  return el;
+}
+const tipPlat = (counts, values) => d => {
+  let rows = PLATS.map(p => ({p, n: counts[d.key][p]||0, v: values[d.key][p]||0})).filter(x=>x.n>0||x.v>0);
+  return rows.map(x=>`<div class="r"><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${PCOLOR[x.p]};margin-right:5px"></i>${esc(x.p)}</span><span>${x.n} · ${fmtC(x.v)}</span></div>`).join('')
+    + `<div class="r" style="margin-top:4px;border-top:1px solid var(--grid);padding-top:4px"><span>Total</span><span>${d.n??''}${d.n!==undefined?' POs · ':''}${fmtC(d.value)}</span></div>`;
+};
+
+/* ---------- KPI tile ---------- */
+const kpi = (label, val, sub, opts={}) => `
+  <div class="kpi ${opts.go?'clickable':''}" ${opts.go?`data-go="${opts.go}"`:''} ${opts.filter?`data-filter="${opts.filter}"`:''}>
+    <div class="lbl">${opts.dot?`<span class="dot" style="background:${opts.dot}"></span>`:''}${esc(label)}</div>
+    <div class="val" ${opts.color?`style="color:${opts.color}"`:''}>${val}</div>
+    <div class="sub">${sub||''}</div>
+  </div>`;
+
+/* ============ DASHBOARD VIEW ============ */
+function renderDashboard(){
+  const v = $('#view-dashboard');
+  const whData = whRows.map(w => ({label:w, key:w, value:P.wh.values[w].total, n:P.wh.counts[w].total, sub:undefined, tipTitle:`${w} — ${P.wh.counts[w].total} POs`}));
+  const platData = PLATS.map((p,i) => ({label:p, value:P.wh.values['Grand Total'][p]||0, n:P.wh.counts['Grand Total'][p]||0, sub:`${P.wh.counts['Grand Total'][p]||0} POs`, tipTitle:p}))
+                        .filter(d=>d.n>0).sort((a,b)=>b.value-a.value);
+  const dateData = dateRows.map(dr => ({label:fmtD(pDMY(dr)), key:dr, value:P.poDate.values[dr].total, n:P.poDate.counts[dr].total, sub:`${P.poDate.counts[dr].total}`, tipTitle:`PO date ${fmtDF(pDMY(dr))} — ${P.poDate.counts[dr].total} POs`}));
+  const apData = apRows.map(ar => ({label: ar==='Appointment Pending'?'No appt':fmtD(pDMY(ar)), key:ar,
+      value:P.appointment.values[ar].total, n:P.appointment.counts[ar].total, sub:`${P.appointment.counts[ar].total}`,
+      color: ar==='Appointment Pending' ? 'var(--baseline)' : 'var(--s1)',
+      tipTitle: ar==='Appointment Pending' ? 'Appointment pending' : `Appointment ${fmtDF(pDMY(ar))}`}));
+  // category from line detail
+  const catAgg = {}; DATA.poLines.forEach(l => { (catAgg[l.category] ||= {v:0,q:0}); catAgg[l.category].v += l.value; catAgg[l.category].q += l.qty; });
+  const catData = Object.entries(catAgg).map(([c,x])=>({label:c, value:x.v, q:x.q, tipTitle:c})).sort((a,b)=>b.value-a.value);
+  // billing funnel
+  const F = DATA.fillRate;
+  const fPO = F.reduce((s,r)=>s+r.poVal,0), fSO = F.reduce((s,r)=>s+r.soVal,0), fINV = F.reduce((s,r)=>s+r.invVal,0), fGRN = F.reduce((s,r)=>s+r.grnVal,0);
+
+  v.innerHTML = `
+  <div class="note"><b>Snapshot · 11 Aug 2026.</b> Headline figures and the warehouse / platform / date / appointment summaries come from the sheet's <b>Report Format</b> pivots (all 6 warehouses, 114 POs). The line-level browser covers the <b>Uni Commerce raw extract</b> currently in the sheet — ${ORDERS.length} POs / ${DATA.poLines.length} lines for AHM&nbsp;WH and KOLWH (${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))}). See <a href="#" data-go="about" style="color:var(--accent)">Data coverage</a>.</div>
+  <div class="kpis">
+    ${kpi('Total pending POs', fmtIN(GT_N), 'across 6 warehouses · 8 platforms', {go:'pos'})}
+    ${kpi('Pending value', fmtC(GT_V), fmtV(GT_V), {})}
+    ${kpi("Today's appointments", TODAY_N, `${fmtC(TODAY_V)} due 11 Aug`, {dot:'var(--warn)'})}
+    ${kpi('Appointment pending', AP_PEND_N, `${fmtC(AP_PEND_V)} · no slot booked`, {dot:'var(--serious)', color:'var(--serious)'})}
+    ${kpi('Overdue (6+ days)', OVERDUE.n, `${fmtC(OVERDUE.v)} · PO age over 6 days`, {dot:'var(--warn)'})}
+    ${kpi('Critical (9+ days)', CRIT.n, `${fmtC(CRIT.v)} · raised 30 Jul–2 Aug`, {dot:'var(--crit)', color:'var(--crit)'})}
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="hd"><div><h3>Warehouse summary</h3><div class="sub">Pending value by warehouse · hover for platform split</div></div></div><div id="ch-wh"></div></div>
+    <div class="card"><div class="hd"><div><h3>Platform summary</h3><div class="sub">Pending value by platform · all warehouses</div></div></div><div id="ch-plat"></div></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="hd"><div><h3>Pending build-up by PO date</h3><div class="sub">Value of still-pending POs by the date they were raised (count below bar)</div></div></div><div id="ch-date"></div></div>
+    <div class="card"><div class="hd"><div><h3>Appointment schedule</h3><div class="sub">Pending value by delivery appointment date</div></div>
+      </div><div class="legend"><span class="k"><span class="sw" style="background:var(--s1)"></span>Slot booked</span><span class="k"><span class="sw" style="background:var(--baseline)"></span>No appointment</span></div><div id="ch-appt"></div></div>
+  </div>
+  <div class="grid g32">
+    <div class="card"><div class="hd"><div><h3>Ageing</h3><div class="sub">Pending POs by age since PO date</div></div></div><div id="ch-age"></div></div>
+    <div class="card"><div class="hd"><div><h3>Category summary</h3><div class="sub">Line-detail extract only (AHM & KOL)</div></div></div><div id="ch-cat"></div></div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><div><h3>Billing status — dispatch vs sales</h3><div class="sub">Blinkit Gujarat + Reliance Ambala tracking sheet · ${F.length} PO lines</div></div>
+      <div class="sp"><button class="btn ghost" data-go="billing">Open →</button></div></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:8px 0 12px">
+        ${[['PO value',fPO,'var(--s1)'],['SO value',fSO,'var(--s1)'],['Invoiced',fINV,'var(--s1)'],['GRN value',fGRN,'var(--s1)']].map(([l,x])=>`
+          <div><div style="font-size:11px;color:var(--muted)">${l}</div><div style="font-weight:650;font-size:16px">${fmtC(x)}</div></div>`).join('')}
+      </div>
+      ${[['SO coverage of PO', fSO? Math.min(100,fPO?fSO/fPO*100:0):0, 'SOs exceed POs — Blinkit indent revisions create extra SO lines'],
+         ['Invoiced vs SO', fSO?fINV/fSO*100:0, 'only 1 of 67 lines invoiced in this cut'],
+         ['GRN vs Invoice', fINV?fGRN/fINV*100:0, 'no GRNs recorded yet']].map(([l,pct,note])=>`
+        <div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px"><span>${l}</span><b>${pct.toFixed(1)}%</b></div>
+        <div class="meter"><i style="width:${Math.min(100,pct)}%;background:var(--seq-550)"></i></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${note}</div></div>`).join('')}
+    </div>
+    <div class="card alerts"><div class="hd"><div><h3>Alerts & exceptions</h3><div class="sub">Rule-based, recomputed from the snapshot</div></div></div>
+      ${ALERTS.map(a=>`<div class="al"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div><div>${esc(a.t)}</div><small>${esc(a.s)}</small></div></div>`).join('')}
+    </div>
+  </div>
+  <div class="grid g32">
+    <div class="card"><div class="hd"><div><h3>Recent PO activity</h3><div class="sub">Latest orders in the line-detail extract</div></div></div>
+      <div class="tl">${ORDERS.slice(0,6).map(o=>`<div class="ev"><b>${esc(o.orderId)}</b> · ${esc(o.platform)} — ${o.lines.length} lines, ${fmtC(o.value)}
+        <small>${esc(o.wh)} · PO date ${fmtDF(o.oDate)} · ${o.aDate?('appt '+fmtDF(o.aDate)):'no appointment'}</small></div>`).join('')}</div>
+    </div>
+    <div class="card"><div class="hd"><div><h3>Quick actions</h3><div class="sub">Session tools</div></div></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        <button class="btn" data-go="pos">📋 Open pending PO workbench</button>
+        <button class="btn" id="qa-pending">⏱ Show appointment-pending POs</button>
+        <button class="btn" id="qa-export">⬇ Export line detail (CSV)</button>
+        <button class="btn" data-go="billing">🧾 Review billing status</button>
+        <button class="btn" data-go="masters">🗂 Check master data quality</button>
+      </div>
+    </div>
+  </div>`;
+  $('#ch-wh').append(barSVG({data:whData, tipRows:tipPlat(P.wh.counts,P.wh.values)}));
+  $('#ch-plat').append(colSVG({data:platData, band:78, tipRows:d=>`<div class="r"><span>POs</span><span>${d.n}</span></div><div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div>`}));
+  $('#ch-date').append(colSVG({data:dateData, tipRows:tipPlat(P.poDate.counts,P.poDate.values)}));
+  $('#ch-appt').append(colSVG({data:apData, tipRows:tipPlat(P.appointment.counts,P.appointment.values)}));
+  $('#ch-age').append(colSVG({data:ageAgg.map(b=>({label:b.label,value:b.v,n:b.n,sub:`${b.n} POs`,tipTitle:b.label})), tipRows:d=>`<div class="r"><span>POs</span><span>${d.n}</span></div><div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div>`}));
+  $('#ch-cat').append(barSVG({data:catData, tipRows:d=>`<div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div><div class="r"><span>Qty</span><span>${fmtIN(d.q)} units</span></div>`}));
+  $('#qa-export')?.addEventListener('click', exportCSV);
+  $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); FS.ap='Appointment Pending'; syncFilters(); renderPOTable(); });
+}
+
+/* ============ PENDING PO MANAGEMENT ============ */
+const COLS = [
+  ['orderId','PO number',1],['wh','Warehouse',1],['platform','Platform',1],['channel','Facility / channel',0],
+  ['orderDate','PO date',1],['apptDate','Appointment',1],['apStatus','Appt status',1],['age','Age (d)',1],
+  ['lines','Lines',1],['qty','Qty',1],['value','PO value',1],['custRef','Cust ref',0],['remark','Remark',1]
+];
+const FS = {q:'', wh:'', plat:'', ap:'', cat:'', from:'', to:''};
+let SORT = {k:'value', dir:-1}, PAGE = 1, PER = 15, SEL = new Set();
+let visCols = new Set(COLS.filter(c=>c[2]).map(c=>c[0]));
+let savedViews = [{name:'High value first', fs:{...FS}, sort:{k:'value',dir:-1}},
+                  {name:'Awaiting appointment', fs:{...FS, ap:'Appointment Pending'}, sort:{k:'age',dir:-1}}];
+
+function filteredOrders(){
+  return ORDERS.filter(o => {
+    if (FS.q){ const q=FS.q.toLowerCase(); if(!(o.orderId.toLowerCase().includes(q)||o.channel.toLowerCase().includes(q)||o.lines.some(l=>l.itemName.toLowerCase().includes(q)||l.item.toLowerCase().includes(q)))) return false; }
+    if (FS.wh && o.wh!==FS.wh) return false;
+    if (FS.plat && o.platform!==FS.plat) return false;
+    if (FS.ap && o.apStatus!==FS.ap) return false;
+    if (FS.cat && !o.lines.some(l=>l.category===FS.cat)) return false;
+    if (FS.from && o.oDate < new Date(FS.from)) return false;
+    if (FS.to && o.oDate > new Date(FS.to)) return false;
+    return true;
+  });
+}
+function renderPOs(){
+  const v = $('#view-pos');
+  const whs=[...new Set(ORDERS.map(o=>o.wh))], plats=[...new Set(ORDERS.map(o=>o.platform))], cats=[...new Set(DATA.poLines.map(l=>l.category))];
+  v.innerHTML = `
+  <div class="note">Line-level workbench over the <b>Uni Commerce raw extract</b> in the sheet — ${ORDERS.length} POs / ${DATA.poLines.length} lines (AHM WH & KOLWH). The other warehouses appear in the sheet only as pivot totals; add their raw rows to the extract tab and they will show here too.</div>
+  <div class="toolbar">
+    <input type="text" id="f-q" placeholder="Search PO / item / channel…" style="width:210px" value="${esc(FS.q)}">
+    <select id="f-wh"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
+    <select id="f-plat"><option value="">All platforms</option>${plats.map(p=>`<option ${FS.plat===p?'selected':''}>${esc(p)}</option>`).join('')}</select>
+    <select id="f-ap"><option value="">Any appt status</option><option ${FS.ap==='Scheduled'?'selected':''}>Scheduled</option><option ${FS.ap==='Appointment Pending'?'selected':''}>Appointment Pending</option></select>
+    <select id="f-cat"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <input type="date" id="f-from" value="${FS.from}" title="PO date from"><input type="date" id="f-to" value="${FS.to}" title="PO date to">
+    <button class="btn ghost" id="f-clear">Clear</button>
+    <span class="spacer"></span>
+    <div class="dropdown"><button class="btn" id="viewsbtn">Saved views ▾</button><div class="dd-menu" id="viewsmenu"></div></div>
+    <div class="dropdown"><button class="btn" id="colsbtn">Columns ▾</button><div class="dd-menu" id="colsmenu"></div></div>
+    <button class="btn" id="bulkbtn">Bulk remark</button>
+    <button class="btn primary" id="exportbtn">⬇ Export CSV</button>
+  </div>
+  <div class="card" style="padding:0">
+    <div class="scrollx"><table id="potable"></table></div>
+    <div class="pager" id="pager" style="padding:0 14px 12px"></div>
+  </div>`;
+  $('#f-q').addEventListener('input', e=>{FS.q=e.target.value; PAGE=1; renderPOTable();});
+  [['f-wh','wh'],['f-plat','plat'],['f-ap','ap'],['f-cat','cat'],['f-from','from'],['f-to','to']].forEach(([id,k])=>
+    $('#'+id).addEventListener('change', e=>{FS[k]=e.target.value; PAGE=1; renderPOTable();}));
+  $('#f-clear').addEventListener('click', ()=>{Object.keys(FS).forEach(k=>FS[k]=''); PAGE=1; renderPOs(); renderPOTable();});
+  $('#exportbtn').addEventListener('click', exportCSV);
+  $('#bulkbtn').addEventListener('click', ()=>{
+    if(!SEL.size){ alertToast('Select rows first (checkboxes).'); return; }
+    const r = prompt(`Remark for ${SEL.size} selected PO(s):`); if(r==null) return;
+    SEL.forEach(id=>REMARKS[id]=r); renderPOTable(); });
+  // column chooser
+  const cm = $('#colsmenu');
+  cm.innerHTML = COLS.map(c=>`<label><input type="checkbox" data-c="${c[0]}" ${visCols.has(c[0])?'checked':''}>${c[1]}</label>`).join('');
+  cm.addEventListener('change', e=>{ const c=e.target.dataset.c; e.target.checked?visCols.add(c):visCols.delete(c); renderPOTable(); });
+  $('#colsbtn').addEventListener('click', e=>{e.stopPropagation(); toggleMenu(cm);});
+  const vm = $('#viewsmenu');
+  const renderViews = () => { vm.innerHTML = savedViews.map((sv,i)=>`<label data-i="${i}">▸ ${esc(sv.name)}</label>`).join('') +
+    `<label id="savecur" style="border-top:1px solid var(--grid);color:var(--accent)">＋ Save current view…</label>`;
+    $$('#viewsmenu label[data-i]').forEach(l=>l.addEventListener('click', ()=>{ const sv=savedViews[+l.dataset.i];
+      Object.assign(FS, sv.fs); SORT={...sv.sort}; PAGE=1; renderPOs(); renderPOTable(); }));
+    $('#savecur').addEventListener('click', ()=>{ const n=prompt('View name:'); if(n){ savedViews.push({name:n, fs:{...FS}, sort:{...SORT}}); renderViews(); alertToast('View saved for this session.'); }});
+  }; renderViews();
+  $('#viewsbtn').addEventListener('click', e=>{e.stopPropagation(); toggleMenu(vm);});
+  renderPOTable();
+}
+function renderPOTable(){
+  const t = $('#potable'); if(!t) return;
+  let rows = filteredOrders();
+  const k = SORT.k;
+  rows = rows.slice().sort((a,b)=>{ let x = k==='lines'?a.lines.length: k==='remark'?(REMARKS[a.orderId]||''): a[k];
+    let y = k==='lines'?b.lines.length: k==='remark'?(REMARKS[b.orderId]||''): b[k];
+    if (x instanceof Date||y instanceof Date){x=+(a.oDate||0);y=+(b.oDate||0);}
+    return (x>y?1:x<y?-1:0)*SORT.dir; });
+  const total = rows.length, pages = Math.max(1, Math.ceil(total/PER));
+  PAGE = Math.min(PAGE, pages);
+  const page = rows.slice((PAGE-1)*PER, PAGE*PER);
+  const cols = COLS.filter(c=>visCols.has(c[0]));
+  t.innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selall"></th>${cols.map(c=>
+      `<th data-k="${c[0]}" class="${['value','qty','age','lines'].includes(c[0])?'num':''}">${c[1]} ${SORT.k===c[0]?(SORT.dir>0?'↑':'↓'):''}</th>`).join('')}</tr></thead>
+    <tbody>${page.length? page.map(o=>`<tr data-id="${esc(o.orderId)}">
+      <td><input type="checkbox" class="rowsel" data-id="${esc(o.orderId)}" ${SEL.has(o.orderId)?'checked':''}></td>
+      ${cols.map(c=>{ const key=c[0];
+        if(key==='orderId') return `<td><a href="#" style="color:var(--accent);font-weight:600" class="polink" data-id="${esc(o.orderId)}">${esc(o.orderId)}</a></td>`;
+        if(key==='platform') return `<td><span class="tag blue">${esc(o.platform)}</span></td>`;
+        if(key==='apStatus') return `<td>${o.aDate?'<span class="tag green">Scheduled</span>':'<span class="tag amber">Appt pending</span>'}</td>`;
+        if(key==='apptDate') return `<td>${o.aDate?fmtDF(o.aDate):'—'}</td>`;
+        if(key==='orderDate') return `<td>${fmtDF(o.oDate)}</td>`;
+        if(key==='age') return `<td class="num">${o.age??'—'}</td>`;
+        if(key==='lines') return `<td class="num">${o.lines.length}</td>`;
+        if(key==='qty') return `<td class="num">${fmtIN(o.qty)}</td>`;
+        if(key==='value') return `<td class="num"><b>${fmtV(o.value)}</b></td>`;
+        if(key==='remark') return `<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${esc(REMARKS[o.orderId]||'')}</td>`;
+        return `<td>${esc(o[key]??'')}</td>`; }).join('')}
+    </tr>`).join('') : `<tr><td colspan="${cols.length+1}"><div class="empty">No POs match the current filters.</div></td></tr>`}</tbody>
+    <tfoot><tr><td></td><td colspan="${Math.max(1,cols.length-3)}" style="color:var(--muted)">${total} POs · ${fmtIN(rows.reduce((s,o)=>s+o.qty,0))} units</td>
+      ${visCols.has('value')?`<td class="num" colspan="3"><b>${fmtV(rows.reduce((s,o)=>s+o.value,0))}</b></td>`:'<td colspan="3"></td>'}</tr></tfoot>`;
+  $$('#potable th[data-k]').forEach(th=>th.addEventListener('click', ()=>{ const kk=th.dataset.k;
+    SORT = SORT.k===kk ? {k:kk, dir:-SORT.dir} : {k:kk, dir:-1}; renderPOTable(); }));
+  $$('#potable .polink').forEach(a=>a.addEventListener('click', e=>{e.preventDefault(); openPO(a.dataset.id);}));
+  $$('#potable .rowsel').forEach(cb=>cb.addEventListener('change', ()=>{ cb.checked?SEL.add(cb.dataset.id):SEL.delete(cb.dataset.id); }));
+  $('#selall')?.addEventListener('change', e=>{ page.forEach(o=> e.target.checked?SEL.add(o.orderId):SEL.delete(o.orderId)); renderPOTable(); });
+  const pg = $('#pager');
+  pg.innerHTML = `<span>Page ${PAGE} of ${pages}</span>` +
+    `<button id="pprev" ${PAGE<=1?'disabled':''}>‹</button>` +
+    Array.from({length:pages},(_,i)=>`<button class="${i+1===PAGE?'cur':''}" data-p="${i+1}">${i+1}</button>`).slice(Math.max(0,PAGE-3), PAGE+2).join('') +
+    `<button id="pnext" ${PAGE>=pages?'disabled':''}>›</button>`;
+  $('#pprev')?.addEventListener('click', ()=>{PAGE--; renderPOTable();});
+  $('#pnext')?.addEventListener('click', ()=>{PAGE++; renderPOTable();});
+  $$('#pager button[data-p]').forEach(b=>b.addEventListener('click', ()=>{PAGE=+b.dataset.p; renderPOTable();}));
+}
+function syncFilters(){ const m={'f-wh':'wh','f-plat':'plat','f-ap':'ap','f-cat':'cat'}; Object.entries(m).forEach(([id,k])=>{ const el=$('#'+id); if(el) el.value=FS[k]; }); }
+function exportCSV(){
+  const rows = [['PO Number','Warehouse','Platform','Channel','PO Date','Appointment','Appt Status','Age (days)','Item Code','Item Name','Category','Qty','MRP','PO Value','Remark']];
+  filteredOrders().forEach(o=>o.lines.forEach(l=>rows.push([o.orderId,o.wh,o.platform,o.channel,o.orderDate,o.apptDate||'',o.apStatus,o.age,l.item,l.itemName,l.category,l.qty,l.mrp,l.value,REMARKS[o.orderId]||''])));
+  const csv = rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download = 'pending_po_lines_snapshot_2026-08-11.csv'; a.click();
+}
+
+/* ============ PO DETAILS ============ */
+let CURPO = null;
+function openPO(id){ CURPO = ORDERS.find(o=>o.orderId===id); goView('podetail'); }
+function renderPODetail(){
+  const v = $('#view-podetail');
+  if(!CURPO){ v.innerHTML = '<div class="card"><div class="empty">Open a PO from the Pending POs list to see its details.</div></div>'; return; }
+  const o = CURPO;
+  const related = ORDERS.filter(x=>x.platform===o.platform && x.orderId!==o.orderId).slice(0,4);
+  v.innerHTML = `
+  <div class="dethead">
+    <div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="big">${esc(o.orderId)}</span>
+        ${o.aDate?'<span class="tag green">Appointment scheduled</span>':'<span class="tag amber">Appointment pending</span>'}
+        <span class="tag blue">${esc(o.platform)}</span></div>
+      <div style="color:var(--muted);font-size:12px;margin-top:4px">Raised ${fmtDF(o.oDate)} · ${o.age===1?'1 day':o.age+' days'} ago · ${esc(o.channel)}</div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn" id="det-remark">✎ Add remark</button>
+      <button class="btn" data-go="pos">← Back to list</button>
+    </div>
+  </div>
+  <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+    ${kpi('PO value', fmtC(o.value), fmtV(o.value))}
+    ${kpi('Total quantity', fmtIN(o.qty), 'units')}
+    ${kpi('Line items', o.lines.length, 'SKUs on this PO')}
+    ${kpi('Appointment', o.aDate?fmtD(o.aDate):'—', o.aDate?fmtDF(o.aDate):'not booked yet', o.aDate?{}:{color:'var(--serious)'})}
+  </div>
+  <div class="pcols">
+    <div class="card"><h3>Customer</h3><div class="sub">&nbsp;</div><dl class="kv">
+      <dt>Customer code</dt><dd>${esc(o.custCode)}</dd><dt>Ship-to</dt><dd>${esc(o.shipTo)}</dd>
+      <dt>Customer ref</dt><dd>${esc(o.custRef)}</dd><dt>Channel</dt><dd>${esc(o.channel)}</dd></dl></div>
+    <div class="card"><h3>Warehouse</h3><div class="sub">&nbsp;</div><dl class="kv">
+      <dt>Warehouse</dt><dd>${esc(o.wh)}</dd><dt>Facility code</dt><dd>${esc(o.lines[0].facility)}</dd>
+      <dt>PO date</dt><dd>${fmtDF(o.oDate)}</dd><dt>Posting date</dt><dd>${esc(o.lines[0].postingDate)}</dd></dl></div>
+    <div class="card"><h3>Status timeline</h3><div class="sub">Derived from the extract</div>
+      <div class="tl">
+        <div class="ev"><b>PO received</b><small>${fmtDF(o.oDate)} · via Uni Commerce</small></div>
+        <div class="ev"><b>${o.aDate?'Appointment booked':'Awaiting appointment'}</b><small>${o.aDate?fmtDF(o.aDate):'no slot yet — book to proceed'}</small></div>
+        <div class="ev" style="opacity:.5"><b>Invoice</b><small>not raised in this snapshot</small></div>
+        <div class="ev" style="opacity:.5"><b>Dispatch & GRN</b><small>pending</small></div>
+      </div></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div class="hd"><div><h3>Line items</h3><div class="sub">${o.lines.length} SKUs</div></div></div>
+    <div class="scrollx"><table><thead><tr><th>Item code</th><th>Item name</th><th>Category</th><th class="num">MRP</th><th class="num">Qty</th><th class="num">Cartons*</th><th class="num">Value</th></tr></thead>
+    <tbody>${o.lines.map(l=>{ const cs = DATA.items[l.item]?.carton||0;
+      return `<tr><td>${esc(l.item)}</td><td>${esc(l.itemName)}</td><td>${esc(l.category)}</td>
+      <td class="num">₹${l.mrp}</td><td class="num">${fmtIN(l.qty)}</td><td class="num">${cs?Math.ceil(l.qty/cs):'—'}</td><td class="num">${fmtV(l.value)}</td></tr>`;}).join('')}</tbody>
+    <tfoot><tr><td colspan="4" style="color:var(--muted)">* cartons = qty ÷ carton size from Carton &amp; MRP master (— where carton size missing)</td>
+      <td class="num"><b>${fmtIN(o.qty)}</b></td><td></td><td class="num"><b>${fmtV(o.value)}</b></td></tr></tfoot></table></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h3>Remarks & activity</h3><div class="sub">Session-only — a live build would persist these with user & timestamp</div>
+      <div id="det-remarks">${REMARKS[o.orderId]?`<div class="al"><div class="ic i">✎</div><div>${esc(REMARKS[o.orderId])}<small>SCM Ops · this session</small></div></div>`:'<div class="empty" style="padding:14px">No remarks yet.</div>'}</div></div>
+    <div class="card"><h3>Related POs — ${esc(o.platform)}</h3><div class="sub">Same platform, in extract</div>
+      ${related.length?`<table><thead><tr><th>PO</th><th>WH</th><th>PO date</th><th class="num">Value</th></tr></thead><tbody>
+        ${related.map(r=>`<tr><td><a href="#" class="polink2" data-id="${esc(r.orderId)}" style="color:var(--accent);font-weight:600">${esc(r.orderId)}</a></td><td>${esc(r.wh)}</td><td>${fmtDF(r.oDate)}</td><td class="num">${fmtV(r.value)}</td></tr>`).join('')}</tbody></table>`
+      :'<div class="empty" style="padding:14px">No other POs for this platform in the extract.</div>'}</div>
+  </div>`;
+  $('#det-remark').addEventListener('click', ()=>{ const r = prompt('Remark for '+o.orderId+':', REMARKS[o.orderId]||''); if(r!=null){ REMARKS[o.orderId]=r; renderPODetail(); }});
+  $$('.polink2').forEach(a=>a.addEventListener('click', e=>{e.preventDefault(); openPO(a.dataset.id);}));
+}
+
+/* ============ BILLING / FILL RATE ============ */
+function renderBilling(){
+  const v = $('#view-billing'); const F = DATA.fillRate;
+  const agg = {};
+  F.forEach(r=>{ const k=r.shipTo; (agg[k] ||= {po:0,so:0,inv:0,grn:0,n:0}); const a=agg[k];
+    a.po+=r.poVal; a.so+=r.soVal; a.inv+=r.invVal; a.grn+=r.grnVal; a.n++; });
+  const fPO=F.reduce((s,r)=>s+r.poVal,0), fSO=F.reduce((s,r)=>s+r.soVal,0), fINV=F.reduce((s,r)=>s+r.invVal,0);
+  v.innerHTML = `
+  <div class="note">The sheet's <b>Dispatch vs Sales</b> tab tracks each PO line from sales order to invoice to GRN — currently ${F.length} lines (Blinkit Sanand & Palsana Chokdi, plus one Reliance Ambala line). SO value exceeding PO value reflects Blinkit's revised/split indents; treat percentages as indicative until PO numbers are captured as text (they are stored in scientific notation in the sheet, e.g. 2.73811E+12).</div>
+  <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+    ${kpi('Tracked PO value', fmtC(fPO), F.length+' lines')}
+    ${kpi('SO value', fmtC(fSO), 'sales orders raised')}
+    ${kpi('Invoiced', fmtC(fINV), F.filter(r=>r.invNum).length+' of '+F.length+' lines', {color:'var(--serious)'})}
+    ${kpi('GRN received', fmtC(F.reduce((s,r)=>s+r.grnVal,0)), 'no GRNs in this cut')}
+  </div>
+  <div class="card" style="margin-bottom:14px"><div class="hd"><div><h3>By ship-to location</h3><div class="sub">PO vs SO vs invoiced value</div></div></div>
+    <div class="scrollx"><table><thead><tr><th>Ship-to</th><th class="num">Lines</th><th class="num">PO value</th><th class="num">SO value</th><th class="num">Invoiced</th><th class="num">Inv %</th></tr></thead>
+    <tbody>${Object.entries(agg).map(([k,a])=>`<tr><td>${esc(k)}</td><td class="num">${a.n}</td><td class="num">${fmtV(a.po)}</td><td class="num">${fmtV(a.so)}</td><td class="num">${fmtV(a.inv)}</td>
+      <td class="num">${a.so? (a.inv/a.so*100).toFixed(1):'0.0'}%</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="card"><div class="hd"><div><h3>Line detail</h3><div class="sub">${F.length} rows</div></div></div>
+    <div class="scrollx"><table><thead><tr><th>WH</th><th>SO date</th><th>SO number</th><th>Ship-to</th><th>Item</th><th>Category</th>
+      <th class="num">PO qty</th><th class="num">SO qty</th><th class="num">INV qty</th><th class="num">SO value</th><th>Status</th></tr></thead>
+    <tbody>${F.map(r=>`<tr><td>${esc(r.wh)}</td><td>${esc(r.soDate)}</td><td>${esc(r.soNum)}</td><td>${esc(r.shipTo)}</td>
+      <td title="${esc(r.itemName)}">${esc(r.item)}</td><td>${esc(r.category)}</td>
+      <td class="num">${fmtIN(r.poQty)}</td><td class="num">${fmtIN(r.soQty)}</td><td class="num">${fmtIN(r.invQty)}</td><td class="num">${fmtV(r.soVal)}</td>
+      <td>${r.invNum?'<span class="tag green">Invoiced</span>':'<span class="tag amber">Awaiting invoice</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+/* ============ MASTERS ============ */
+let MTAB = 'items', MPAGE = 1, MQ = '';
+function renderMasters(){
+  const v = $('#view-masters');
+  v.innerHTML = `
+  <div class="toolbar">
+    ${[['items','Items · Carton & MRP'],['warehouses','Warehouses'],['platforms','Platform master']].map(([k,l])=>
+      `<button class="btn ${MTAB===k?'primary':''}" data-mtab="${k}">${l}</button>`).join('')}
+    <span class="spacer"></span>
+    <input type="text" id="m-q" placeholder="Search…" value="${esc(MQ)}" style="width:200px">
+  </div>
+  <div id="m-body"></div>`;
+  $$('[data-mtab]').forEach(b=>b.addEventListener('click', ()=>{MTAB=b.dataset.mtab; MPAGE=1; renderMasters();}));
+  $('#m-q').addEventListener('input', e=>{MQ=e.target.value; MPAGE=1; renderMBody();});
+  renderMBody();
+}
+function renderMBody(){
+  const b = $('#m-body'); const q = MQ.toLowerCase();
+  if (MTAB==='warehouses'){
+    b.innerHTML = `<div class="card"><table><thead><tr><th>Code</th><th>Name (master)</th><th>Name in pivot</th><th>In line extract</th></tr></thead><tbody>
+      ${DATA.warehouses.map(w=>{ const pivotName = {AHM:'AHDWHN',KOLWH:'KOLWH',GURWH:'GURWH',BLRWH:'BLRWH',MUMWH:'MUMWH',HYDWH:'HYDWH'}[w.name]||w.name;
+        const inExtract = ORDERS.some(o=>o.wh.replace(' WH','').startsWith(w.name.slice(0,3)));
+        return `<tr><td>${esc(w.code)}</td><td>${esc(w.name)}</td><td>${esc(pivotName)}</td><td>${inExtract?'<span class="tag green">Yes</span>':'<span class="tag gray">Pivot only</span>'}</td></tr>`;}).join('')}</tbody></table>
+      <div class="sub" style="margin-top:8px">Note: the same warehouse appears as “WH_0007 / AHM / AHM WH / AHDWHN / WH/0007” across tabs — a canonical warehouse code on every tab would remove all mapping ambiguity.</div></div>`;
+    return;
+  }
+  if (MTAB==='items'){
+    let rows = Object.entries(DATA.items).map(([code,it])=>({code, ...it, cat2: DATA.itemCat[code]||'—'}));
+    Object.keys(DATA.itemCat).filter(k=>!DATA.items[k]).forEach(k=>rows.push({code:k, name:'— (not in Carton & MRP master)', mrp:0, category:'—', carton:0, cat2:DATA.itemCat[k]}));
+    if(q) rows = rows.filter(r=>r.code.toLowerCase().includes(q)||r.name.toLowerCase().includes(q)||String(r.category).toLowerCase().includes(q));
+    const flag = r => r.category!=='—' && r.cat2!=='—' && r.category.trim().toUpperCase()!==r.cat2.trim().toUpperCase();
+    b.innerHTML = `<div class="card"><div class="sub" style="margin-bottom:8px">${rows.length} SKUs · amber = category disagrees between Carton/MRP master and Item Category master · “0” carton size blocks carton math</div>
+      <div class="scrollx"><table><thead><tr><th>Code</th><th>Name</th><th class="num">MRP</th><th>Category (carton master)</th><th>Category (item master)</th><th class="num">Carton size</th></tr></thead><tbody>
+      ${rows.slice(0,400).map(r=>`<tr><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td class="num">${r.mrp?'₹'+r.mrp:'—'}</td>
+        <td>${flag(r)?`<span class="tag amber">${esc(r.category)}</span>`:esc(r.category)}</td>
+        <td>${flag(r)?`<span class="tag amber">${esc(r.cat2)}</span>`:esc(r.cat2)}</td>
+        <td class="num">${r.carton||'<span class="tag red">0</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
+    return;
+  }
+  // platforms
+  let rows = DATA.platformMaster || [];
+  if(q) rows = rows.filter(r=>r.some(c=>String(c).toLowerCase().includes(q)));
+  const PER=25, pages=Math.max(1,Math.ceil(rows.length/PER)); MPAGE=Math.min(MPAGE,pages);
+  const page = rows.slice((MPAGE-1)*PER, MPAGE*PER);
+  b.innerHTML = `<div class="card"><div class="sub" style="margin-bottom:8px">${rows.length} customer locations</div>
+    <div class="scrollx"><table><thead><tr><th>Name</th><th>City</th><th>Display name</th><th>Channel</th><th>City type</th></tr></thead>
+    <tbody>${page.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <div class="pager"><span>Page ${MPAGE}/${pages}</span><button id="mprev" ${MPAGE<=1?'disabled':''}>‹</button><button id="mnext" ${MPAGE>=pages?'disabled':''}>›</button></div></div>`;
+  $('#mprev')?.addEventListener('click',()=>{MPAGE--;renderMBody();});
+  $('#mnext')?.addEventListener('click',()=>{MPAGE++;renderMBody();});
+}
+
+/* ============ ABOUT / COVERAGE ============ */
+function renderAbout(){
+  $('#view-about').innerHTML = `
+  <div class="card" style="margin-bottom:14px"><h3>What this dashboard reads</h3><div class="sub">Snapshot taken 11 Aug 2026 from the “SCM – Pending PO” Google Sheet</div>
+    <table><thead><tr><th>Sheet tab</th><th>Used for</th><th>Rows in snapshot</th></tr></thead><tbody>
+      <tr><td>Report Format (pivots)</td><td>Headline KPIs, warehouse / platform / PO-date / appointment summaries — the full 114-PO universe</td><td>3 pivots · 6 WHs · 8 platforms</td></tr>
+      <tr><td>Uni Commerce PO (raw)</td><td>Line-level workbench, PO details, category summary, CSV export</td><td>${DATA.poLines.length} lines · ${ORDERS.length} POs (AHM WH, KOLWH)</td></tr>
+      <tr><td>Dispatch vs Sales</td><td>Billing status: PO → SO → Invoice → GRN</td><td>${DATA.fillRate.length} lines</td></tr>
+      <tr><td>Carton & MRP master</td><td>MRP, carton size, category</td><td>${Object.keys(DATA.items).length} SKUs</td></tr>
+      <tr><td>Item Category master</td><td>Category cross-check</td><td>${Object.keys(DATA.itemCat).length} SKUs</td></tr>
+      <tr><td>Warehouse / Platform masters</td><td>Reference</td><td>${DATA.warehouses.length} WHs · ${(DATA.platformMaster||[]).length} locations</td></tr>
+    </tbody></table></div>
+  <div class="card" style="margin-bottom:14px"><h3>Known gap</h3><div class="sub">Why summary and line counts differ</div>
+    <p style="line-height:1.6;font-size:12.5px">The Report Format pivots summarise <b>114 pending POs (₹1.90 Cr)</b> across all six warehouses, but the raw Uni Commerce tab in the sheet currently holds line rows for only <b>${ORDERS.length} POs (${fmtC(ORDERS.reduce((s,o)=>s+o.value,0))})</b> from AHM WH and KOLWH. The pivots were evidently built from a fuller extract. Both are shown here, clearly labelled; once the raw tab carries all warehouses' rows, every widget will reconcile to the same universe.</p></div>
+  <div class="card"><h3>Data-quality findings in this snapshot</h3><div class="sub">Worth fixing at source — each one currently limits what the dashboard can compute</div>
+    <div class="alerts">
+      ${[`${DQ.mism} SKUs have conflicting categories between the Carton/MRP master and the Item Category master (e.g. “TOASTS” vs “TOAST”, “On the go cakes” vs “CAKES”).`,
+         `${DQ.noCarton} SKUs have carton size 0/blank — carton counts can't be derived for them.`,
+         `Duplicate item row: FG/0048 appears twice in the Carton & MRP master.`,
+         `${DQ.noAppt} of ${DATA.poLines.length} raw PO lines have no appointment date.`,
+         `${DQ.noCat} SKUs exist in the Item Category master but not in the Carton/MRP master (no MRP / carton data).`,
+         `PO numbers in Dispatch vs Sales are stored as numbers and display in scientific notation (e.g. 2.73811E+12) — precision is lost; store as text.`,
+         `Warehouse naming varies by tab (WH_0007 / WH/0007 / AHM / AHM WH / AHDWHN) — a canonical code would make joins reliable.`]
+        .map(t=>`<div class="al"><div class="ic w">▲</div><div>${t}</div></div>`).join('')}
+    </div></div>`;
+}
+
+/* ============ shell: routing, search, alerts, theme ============ */
+const TITLES = {dashboard:['Pending PO Dashboard','Home / Dashboard'], pos:['Pending PO Management','Home / Pending POs'],
+  podetail:['PO Details','Home / Pending POs / Details'], billing:['Billing Status — Dispatch vs Sales','Home / Billing'],
+  masters:['Master Data','Home / Masters'], about:['Data Coverage & Quality','Home / Data coverage']};
+function goView(name){
+  $$('.view').forEach(x=>x.classList.remove('active'));
+  $('#view-'+name).classList.add('active');
+  $$('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.view===name));
+  const [t,c] = TITLES[name]; $('#viewtitle').textContent=t; $('#crumb').textContent=c;
+  if(name==='podetail') renderPODetail();
+  $('#content').scrollTop = 0;
+}
+document.addEventListener('click', e=>{
+  const g = e.target.closest('[data-go]'); if(g){ e.preventDefault(); goView(g.dataset.go); }
+  if(!e.target.closest('.dropdown')) $$('.dd-menu').forEach(m=>m.style.display='none');
+});
+function toggleMenu(m){ const was = m.style.display==='block'; $$('.dd-menu').forEach(x=>x.style.display='none'); m.style.display = was?'none':'block'; }
+$$('#nav a').forEach(a=>a.addEventListener('click', e=>{e.preventDefault(); goView(a.dataset.view);}));
+$('#pill-pos').textContent = GT_N;
+/* bell */
+$('#bellbadge').textContent = ALERTS.filter(a=>a.sev!=='i').length;
+$('#bellmenu').innerHTML = ALERTS.map(a=>`<div class="al" style="padding:8px 6px;display:flex;gap:9px"><div class="ic ${a.sev}">${a.sev==='c'?'!':a.sev==='w'?'▲':'i'}</div><div style="font-size:12px">${esc(a.t)}<small style="display:block;color:var(--muted)">${esc(a.s)}</small></div></div>`).join('');
+$('#bellbtn').addEventListener('click', e=>{e.stopPropagation(); toggleMenu($('#bellmenu'));});
+/* theme */
+$('#themebtn').addEventListener('click', ()=>{
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme==='dark' ? 'light' : 'dark';
+});
+/* global search */
+const gs = $('#gsearch'), gr = $('#gresults');
+document.addEventListener('keydown', e=>{ if(e.key==='/' && document.activeElement!==gs && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){ e.preventDefault(); gs.focus(); }});
+gs.addEventListener('input', ()=>{
+  const q = gs.value.trim().toLowerCase();
+  if(q.length<2){ gr.style.display='none'; return; }
+  const hits = [];
+  ORDERS.forEach(o=>{ if(o.orderId.toLowerCase().includes(q)||o.channel.toLowerCase().includes(q)) hits.push({t:`${o.orderId} — ${o.platform}, ${fmtC(o.value)}`, s:'Pending PO', act:()=>openPO(o.orderId)}); });
+  Object.entries(DATA.items).forEach(([c,it])=>{ if(c.toLowerCase().includes(q)||it.name.toLowerCase().includes(q)) hits.push({t:`${c} — ${it.name}`, s:'Item master', act:()=>{MTAB='items';MQ=c;goView('masters');renderMasters();}}); });
+  PLATS.forEach(p=>{ if(p.toLowerCase().includes(q)) hits.push({t:p, s:`Platform — ${P.wh.counts['Grand Total'][p]||0} pending POs`, act:()=>{goView('pos'); FS.plat=p; renderPOs();}}); });
+  gr.innerHTML = hits.slice(0,12).map((h,i)=>`<div class="hit" data-i="${i}">${esc(h.t)}<small style="color:var(--muted);display:block">${esc(h.s)}</small></div>`).join('') || '<div class="hit">No matches</div>';
+  gr.style.display='block';
+  $$('.hit', gr).forEach(el=>el.addEventListener('click', ()=>{ const h=hits[+el.dataset.i]; if(h){ h.act(); gr.style.display='none'; gs.value=''; }}));
+});
+document.addEventListener('click', e=>{ if(!e.target.closest('.gsearch')) gr.style.display='none'; });
+function alertToast(msg){ showTipToast(msg); }
+function showTipToast(msg){ const t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface-1);padding:9px 16px;border-radius:9px;font-size:12.5px;z-index:200;box-shadow:var(--shadow)';
+  t.textContent=msg; document.body.append(t); setTimeout(()=>t.remove(), 2600); }
+
+/* ============ boot ============ */
+renderDashboard(); renderPOs(); renderBilling(); renderMasters(); renderAbout(); renderPODetail();
+
+</script>
+</body>
+</html>
