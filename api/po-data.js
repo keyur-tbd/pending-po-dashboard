@@ -33,13 +33,7 @@ const TABS = {
   itemCat:        'Item code & Category Master',  // item code -> category
   platformMaster: 'Channel And Platform Master',  // name, city, display name, channel, city type
   warehouses:     'WH Master',                    // warehouse code -> name
-
-  // --- NOT yet confirmed ---
-  // Nothing in your sheet is obviously the PO / SO / Invoice / GRN fill-rate
-  // data. Candidates are "Report Format" and "D vs S". Set this to whichever
-  // one holds it. Leaving it wrong is harmless: the dashboard still loads and
-  // the billing/fill-rate section simply stays empty.
-  fillRate:       'Fill Rate'
+  fillRate:       'D vs S'                        // dispatch vs sales: PO/SO/Invoice/GRN
 };
 
 // ---------------------------------------------------------------------------
@@ -429,6 +423,18 @@ module.exports = async (req, res) => {
     res.status(200).json({
       fetchedAt: new Date().toISOString(),
       warehouses, items, itemCat, poLines, fillRate, platformMaster,
+      // Provenance, so the dashboard can show exactly which tab fed which
+      // section and how many rows came out. Without this you cannot tell a
+      // genuinely empty section from a mis-mapped tab.
+      _source: {
+        spreadsheet: (meta.properties && meta.properties.title) || null,
+        tabs: matched,
+        rows_read: blocks.reduce((acc, b) => {
+          acc[b] = Math.max(0, (grids[b] || []).length - 1);
+          return acc;
+        }, {}),
+        unmatched: unmatched.map((u) => u.block)
+      },
       _counts: {
         poLines: poLines.length,
         fillRate: fillRate.length,
