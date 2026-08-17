@@ -196,6 +196,20 @@ const toNumber = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// Google formula errors arrive as literal strings. Your Appointment Date column
+// has ~211 of them. Left alone, "#REF!" becomes its own bucket in the
+// appointment pivot, sitting in the charts as though it were a delivery date.
+// Blanking them here means those POs fall into "Appointment Pending", which is
+// what they actually are: POs with no usable appointment.
+const SHEET_ERRORS = new Set([
+  '#REF!', '#N/A', '#VALUE!', '#DIV/0!', '#NAME?', '#NULL!', '#NUM!', '#ERROR!'
+]);
+
+const cleanCell = (v) => {
+  const t = String(v == null ? '' : v).trim();
+  return SHEET_ERRORS.has(t.toUpperCase()) ? '' : t;
+};
+
 function rowsToObjects(grid, aliases) {
   aliases = aliases || {};
   if (!Array.isArray(grid) || grid.length < 2) return [];
@@ -210,7 +224,7 @@ function rowsToObjects(grid, aliases) {
       headers.forEach((key, i) => {
         if (!key) return;
         const raw = row[i] === undefined ? '' : row[i];
-        o[key] = NUMERIC.has(key) ? toNumber(raw) : String(raw).trim();
+        o[key] = NUMERIC.has(key) ? toNumber(cleanCell(raw)) : cleanCell(raw);
       });
       return o;
     });
