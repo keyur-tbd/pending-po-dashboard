@@ -60,6 +60,10 @@ const FIELD_ALIASES = {
     customercode: 'custCode', customerreference: 'custRef',
     shipto: 'shipTo', shiptocode: 'shipTo',
     itemcode: 'item', sku: 'item', skucode: 'item',
+    // New columns in the sheet. These now win over the values the dashboard
+    // used to derive from channel and from the item masters.
+    platform: 'platform',
+    category: 'category', itemcategory: 'category', reportingcategory: 'category',
     povalue: 'value', value: 'value', amount: 'value',
     poqty: 'qty', quantity: 'qty', qty: 'qty',
     invoiceno: 'invoiceNo', facility: 'facility', channel: 'channel', mrp: 'mrp'
