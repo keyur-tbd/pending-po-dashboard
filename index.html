@@ -328,7 +328,11 @@ const DATA = await (async function loadData(){
   try {
 
   /* ---- rebuild the pivot from the PO lines (PO counts, not line counts) ---- */
-  const platOfLocal = ch => {
+  // The sheet now carries its own Platform column, so that is the source of
+  // truth. The channel-prefix guess is kept only as a fallback for rows where
+  // the column is blank -- a blank there should not silently become 'Other'
+  // when the channel name clearly says Blinkit.
+  const platFallback = ch => {
     ch = (ch || '').toUpperCase();
     if (ch.startsWith('BLINKIT')) return 'Blinkit';
     if (ch.startsWith('SWIGGY')) return 'Swiggy';
@@ -339,19 +343,24 @@ const DATA = await (async function loadData(){
     if (ch.startsWith('BB') || ch.startsWith('BIG')) return 'Big Basket';
     return 'Other';
   };
+  const platOfLocal = l => (l.platform || '').trim() || platFallback(l.channel);
 
   const orders = new Map();
   d.poLines.forEach(l => {
     if (!orders.has(l.orderId)) {
       orders.set(l.orderId, { wh: l.wh || 'Unmapped', orderDate: l.orderDate,
-        apptDate: l.apptDate, platform: platOfLocal(l.channel), value: 0 });
+        apptDate: l.apptDate, platform: platOfLocal(l), value: 0 });
     }
     orders.get(l.orderId).value += (+l.value || 0);
   });
   const O = [...orders.values()];
 
-  const seen = [...new Set(O.map(o => o.platform))];
-  const platforms = PLATFORM_ORDER.concat(seen.filter(p => !PLATFORM_ORDER.includes(p)));
+  // PLATFORM_ORDER only fixes the display order of names we already know. Any
+  // new platform the sheet introduces is appended rather than dropped, and
+  // names that never appear are trimmed so empty series don't clutter charts.
+  const seen = [...new Set(O.map(o => o.platform))].filter(Boolean);
+  const platforms = PLATFORM_ORDER.filter(p => seen.includes(p))
+    .concat(seen.filter(p => !PLATFORM_ORDER.includes(p)).sort());
 
   const blank = () => { const o = { total: 0 }; platforms.forEach(p => o[p] = 0); return o; };
   const make = keyOf => {
@@ -551,7 +560,14 @@ function recompute(orders){
 }
 
 /* ---------- line-level detail (Uni Commerce extract) ---------- */
-const platOf = ch => {
+/* The sheet now supplies Platform and Category directly. Both are taken as
+   authoritative; the old derivations survive only to fill blanks.
+
+   This matters for Category in particular: it used to come from the item
+   masters keyed on item code, so any SKU missing from those masters showed as
+   UNMAPPED. Reading the column the sheet already carries removes that whole
+   class of gap. */
+const platFallback = ch => {
   ch = (ch||'').toUpperCase();
   if (ch.startsWith('BLINKIT')) return 'Blinkit';
   if (ch.startsWith('SWIGGY')) return 'Swiggy';
@@ -562,11 +578,28 @@ const platOf = ch => {
   if (ch.startsWith('BB')||ch.startsWith('BIG')) return 'Big Basket';
   return 'Other';
 };
-const catOf = it => (DATA.items[it]?.category) || DATA.itemCat[it] || 'UNMAPPED';
+const catFallback = it => (DATA.items[it]?.category) || DATA.itemCat[it] || 'UNMAPPED';
 const nameOf = it => (DATA.items[it]?.name) || DATA.fillRate.find(f=>f.item===it)?.itemName || it;
-DATA.poLines.forEach(l => { l.platform = platOf(l.channel); l.category = catOf(l.item); l.itemName = nameOf(l.item);
+
+DATA.poLines.forEach(l => {
+  l._platFromSheet = !!(l.platform||'').trim();
+  l._catFromSheet  = !!(l.category||'').trim();
+  l.platform = (l.platform||'').trim() || platFallback(l.channel);
+  l.category = (l.category||'').trim() || catFallback(l.item);
+  l.itemName = nameOf(l.item);
   l.oDate = pDMY(l.orderDate); l.aDate = pDMY(l.apptDate); l.age = days(l.oDate);
-  l.apStatus = l.aDate ? 'Scheduled' : 'Appointment Pending'; });
+  l.apStatus = l.aDate ? 'Scheduled' : 'Appointment Pending';
+});
+
+/* How many rows actually came from the sheet vs a fallback. Surfaced on the
+   Data coverage page so a half-populated new column is visible rather than
+   quietly papered over. */
+const COLSRC = (() => {
+  const n = DATA.poLines.length || 1;
+  const platFromSheet = DATA.poLines.filter(l => l._platFromSheet).length;
+  const catFromSheet  = DATA.poLines.filter(l => l._catFromSheet).length;
+  return { n, platFromSheet, catFromSheet };
+})();
 // group to orders
 const ORDERS = (() => { const m = new Map();
   DATA.poLines.forEach(l => { if(!m.has(l.orderId)) m.set(l.orderId, {orderId:l.orderId, wh:l.wh, channel:l.channel, platform:l.platform,
@@ -676,70 +709,87 @@ const kpi = (label, val, sub, opts={}) => `
    Pending POs view. Two copies of this would drift apart within a week.
    -------------------------------------------------------------------------- */
 function filterBarHTML(){
-  const whs   = [...new Set(ORDERS.map(o=>o.wh))].sort();
-  const plats = [...new Set(ORDERS.map(o=>o.platform))].sort();
+  const whs   = [...new Set(ORDERS.map(o=>o.wh))].filter(Boolean).sort();
+  const plats = [...new Set(ORDERS.map(o=>o.platform))].filter(Boolean).sort();
   const chans = [...new Set(ORDERS.map(o=>o.channel))].filter(Boolean).sort();
-  const cats  = [...new Set(DATA.poLines.map(l=>l.category))].sort();
+  const cats  = [...new Set(DATA.poLines.map(l=>l.category))].filter(Boolean).sort();
   const oids  = [...new Set(ORDERS.map(o=>o.orderId))].sort();
   const apds  = [...new Set(ORDERS.map(o=>o.apptDate).filter(Boolean))]
                 .sort((a,b)=>(pDMY(a)||0)-(pDMY(b)||0));
+  const opt = (list, cur) => list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');
+  const uid = 'oid'+Math.random().toString(36).slice(2,8);   // datalist ids must be unique
   return `
   <div class="toolbar">
-    <input type="text" id="f-oid" list="oidlist" placeholder="Order ID" style="width:130px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
-    <datalist id="oidlist">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
-    <select id="f-wh" title="Warehouse"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
-    <select id="f-ch" title="Channel (raw value from the sheet)"><option value="">All channels</option>${chans.map(c=>`<option ${FS.ch===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-    <select id="f-plat" title="Platform (rolled up)"><option value="">All platforms</option>${plats.map(x=>`<option ${FS.plat===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
-    <select id="f-apd" title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${apds.map(d=>`<option ${FS.apd===d?'selected':''}>${esc(d)}</option>`).join('')}</select>
-    <select id="f-cat" title="Category"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-    <input type="date" id="f-from" value="${FS.from}" title="Order date from"><input type="date" id="f-to" value="${FS.to}" title="Order date to">
-    <button class="btn ghost" id="f-clear">Clear<span id="f-count"></span></button>
+    <input type="text" data-f="q" placeholder="Search PO / item / channel…" style="width:180px" value="${esc(FS.q)}">
+    <input type="text" data-f="oid" list="${uid}" placeholder="Order ID" style="width:125px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
+    <datalist id="${uid}">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
+    <select data-f="wh"   title="Warehouse"><option value="">All warehouses</option>${opt(whs, FS.wh)}</select>
+    <select data-f="plat" title="Platform"><option value="">All platforms</option>${opt(plats, FS.plat)}</select>
+    <select data-f="ch"   title="Channel"><option value="">All channels</option>${opt(chans, FS.ch)}</select>
+    <select data-f="cat"  title="Category"><option value="">All categories</option>${opt(cats, FS.cat)}</select>
+    <select data-f="apd"  title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${opt(apds, FS.apd)}</select>
+    <select data-f="ap"   title="Appointment status"><option value="">Any appt status</option>${opt(['Scheduled','Appointment Pending'], FS.ap)}</select>
+    <input type="date" data-f="from" value="${FS.from}" title="Order date from">
+    <input type="date" data-f="to"   value="${FS.to}"   title="Order date to">
+    <button class="btn ghost" data-f-clear>Clear<span data-f-count></span></button>
   </div>
-  <div id="scopebanner"></div>`;
+  <div class="scopebanner"></div>`;
 }
 
-/* Any filter change rescopes the derived figures, then repaints the current
-   view. Both views call this, so switching tabs keeps the same scope. */
-function applyFilters(){
-  const anyActive = Object.values(FS).some(v => v !== '');
-  recompute(anyActive ? filteredOrders() : null);
-  paintScopeBanner();
-  paintFilterCount();
-  const cur = document.querySelector('.view.active')?.id;
-  if (cur === 'view-dashboard') renderDashboard();
-  else if (cur === 'view-pos') { PAGE = 1; renderPOTable(); }
+const TEXT_FILTERS = new Set(['q','oid']);
+
+/* Wire one bar, scoped to its own view. */
+function wireFilterBar(root, onChange){
+  if (!root) return;
+  root.querySelectorAll('[data-f]').forEach(el => {
+    const k = el.dataset.f;
+    el.addEventListener(TEXT_FILTERS.has(k) ? 'input' : 'change', e => {
+      FS[k] = e.target.value; onChange();
+    });
+  });
+  const c = root.querySelector('[data-f-clear]');
+  if (c) c.addEventListener('click', () => { Object.keys(FS).forEach(k=>FS[k]=''); onChange(); });
 }
 
-function wireFilterBar(onChange){
-  const text = [['f-oid','oid'],['f-q','q']];
-  const sel  = [['f-wh','wh'],['f-ch','ch'],['f-plat','plat'],['f-apd','apd'],
-                ['f-ap','ap'],['f-cat','cat'],['f-from','from'],['f-to','to']];
-  text.forEach(([id,k])=>{ const el=$('#'+id); if(el) el.addEventListener('input', e=>{FS[k]=e.target.value; onChange();}); });
-  sel.forEach(([id,k])=>{ const el=$('#'+id); if(el) el.addEventListener('change', e=>{FS[k]=e.target.value; onChange();}); });
-  const c=$('#f-clear'); if(c) c.addEventListener('click', ()=>{ Object.keys(FS).forEach(k=>FS[k]=''); onChange(); });
-  paintFilterCount();
+/* Push FS back onto every bar, so the two views never disagree. */
+function syncFilterBars(){
+  document.querySelectorAll('[data-f]').forEach(el => { el.value = FS[el.dataset.f] ?? ''; });
+  const n = Object.values(FS).filter(v => v !== '').length;
+  document.querySelectorAll('[data-f-count]').forEach(el => { el.textContent = n ? ` (${n})` : ''; });
+  document.querySelectorAll('[data-f-clear]').forEach(el => el.classList.toggle('primary', n > 0));
 }
 
 /* A filtered KPI screenshotted and forwarded as "the pending PO number" is the
-   real risk of putting filters on an exec dashboard. So when a filter is on,
-   say so loudly and show the denominator. */
+   real risk of putting filters on an exec dashboard. When a filter is on, say
+   so loudly and carry the denominator. */
 function paintScopeBanner(){
-  const el = $('#scopebanner'); if(!el) return;
-  const active = Object.entries(FS).filter(([,v])=>v!=='');
-  if (!active.length){ el.innerHTML=''; return; }
+  const active = Object.entries(FS).filter(([,v]) => v !== '');
   const LABEL = {oid:'Order ID', wh:'Warehouse', ch:'Channel', plat:'Platform',
                  apd:'Appt date', ap:'Appt status', cat:'Category',
                  from:'From', to:'To', q:'Search'};
   const total = ORDERS.length;
   const shown = SCOPE_ORDERS ? SCOPE_ORDERS.length : total;
-  el.innerHTML = `<div class="note" style="border-left:3px solid var(--warn);margin-bottom:12px">
-    <b>Filtered view — not the full PO book.</b>
-    Showing <b>${fmtIN(shown)}</b> of ${fmtIN(total)} POs.
-    ${active.map(([k,v])=>`${LABEL[k]||k}: <b>${esc(v)}</b>`).join(' &middot; ')}
-    <a href="#" id="scope-clear" style="color:var(--accent);margin-left:8px">Clear all</a></div>`;
-  $('#scope-clear')?.addEventListener('click', e=>{
-    e.preventDefault(); Object.keys(FS).forEach(k=>FS[k]=''); applyFilters();
-  });
+  const html = !active.length ? '' :
+    `<div class="note" style="border-left:3px solid var(--warn);margin-bottom:12px">
+      <b>Filtered view — not the full PO book.</b>
+      Showing <b>${fmtIN(shown)}</b> of ${fmtIN(total)} POs.
+      ${active.map(([k,v])=>`${LABEL[k]||k}: <b>${esc(v)}</b>`).join(' &middot; ')}
+      <a href="#" data-scope-clear style="color:var(--accent);margin-left:8px">Clear all</a></div>`;
+  document.querySelectorAll('.scopebanner').forEach(el => { el.innerHTML = html; });
+  document.querySelectorAll('[data-scope-clear]').forEach(a =>
+    a.addEventListener('click', e => {
+      e.preventDefault(); Object.keys(FS).forEach(k=>FS[k]=''); applyFilters();
+    }));
+}
+
+/* Any filter change rescopes the derived figures, then repaints. */
+function applyFilters(){
+  const anyActive = Object.values(FS).some(v => v !== '');
+  recompute(anyActive ? filteredOrders() : null);
+  const cur = document.querySelector('.view.active')?.id;
+  if (cur === 'view-dashboard') renderDashboard();
+  else if (cur === 'view-pos') { PAGE = 1; renderPOs(); }
+  else { syncFilterBars(); paintScopeBanner(); }
 }
 
 function renderDashboard(){
@@ -824,8 +874,8 @@ function renderDashboard(){
   $('#ch-age').append(colSVG({data:ageAgg.map(b=>({label:b.label,value:b.v,n:b.n,sub:`${b.n} POs`,tipTitle:b.label})), tipRows:d=>`<div class="r"><span>POs</span><span>${d.n}</span></div><div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div>`}));
   $('#ch-cat').append(barSVG({data:catData, tipRows:d=>`<div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div><div class="r"><span>Qty</span><span>${fmtIN(d.q)} units</span></div>`}));
   $('#qa-export')?.addEventListener('click', exportCSV);
-  wireFilterBar(applyFilters); paintScopeBanner();
-  $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); FS.ap='Appointment Pending'; syncFilters(); renderPOTable(); });
+  wireFilterBar($('#view-dashboard'), applyFilters); syncFilterBars(); paintScopeBanner();
+  $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); FS.ap='Appointment Pending'; syncFilterBars(); renderPOTable(); });
 }
 
 /* ============ PENDING PO MANAGEMENT ============ */
@@ -855,6 +905,7 @@ function filteredOrders(){
     // no date at all -- not POs whose date happens to equal that string.
     if (FS.apd){ const key = o.apptDate || 'Appointment Pending'; if (key!==FS.apd) return false; }
     if (FS.ap && o.apStatus!==FS.ap) return false;
+    // A PO can span categories, so match if ANY line is in the chosen one.
     if (FS.cat && !o.lines.some(l=>l.category===FS.cat)) return false;
     if (FS.from && o.oDate < new Date(FS.from)) return false;
     if (FS.to && o.oDate > new Date(FS.to)) return false;
@@ -863,42 +914,17 @@ function filteredOrders(){
 }
 function renderPOs(){
   const v = $('#view-pos');
-  const whs=[...new Set(ORDERS.map(o=>o.wh))].sort(),
-        plats=[...new Set(ORDERS.map(o=>o.platform))].sort(),
-        chans=[...new Set(ORDERS.map(o=>o.channel))].filter(Boolean).sort(),
-        cats=[...new Set(DATA.poLines.map(l=>l.category))].sort(),
-        oids=[...new Set(ORDERS.map(o=>o.orderId))].sort();
-  // Appointment dates sorted chronologically, not as strings -- '2-08-2026'
-  // must not sort after '15-08-2026'. Pending is pinned to the top.
-  const apds=[...new Set(ORDERS.map(o=>o.apptDate).filter(Boolean))]
-        .sort((a,b)=>(pDMY(a)||0)-(pDMY(b)||0));
+  const whs=[...new Set(ORDERS.map(o=>o.wh))].filter(Boolean).sort();
   v.innerHTML = `
   <div class="note">Line-level workbench over <b>${esc(DATA._source?.tabs?.poLines || "the PO lines tab")}</b> — ${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines across ${whs.length} warehouse(s). Filters below apply to the table, the CSV export and the count shown under it.</div>
-  <div class="toolbar">
-    <input type="text" id="f-q" placeholder="Search PO / item / channel…" style="width:190px" value="${esc(FS.q)}">
-    <input type="text" id="f-oid" list="oidlist" placeholder="Order ID" style="width:130px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
-    <datalist id="oidlist">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
-    <select id="f-wh" title="Warehouse"><option value="">All warehouses</option>${whs.map(w=>`<option ${FS.wh===w?'selected':''}>${esc(w)}</option>`).join('')}</select>
-    <select id="f-plat" title="Platform (rolled up)"><option value="">All platforms</option>${plats.map(p=>`<option ${FS.plat===p?'selected':''}>${esc(p)}</option>`).join('')}</select>
-    <select id="f-ch" title="Channel (raw value from the sheet)"><option value="">All channels</option>${chans.map(c=>`<option ${FS.ch===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-    <select id="f-apd" title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${apds.map(d=>`<option ${FS.apd===d?'selected':''}>${esc(d)}</option>`).join('')}</select>
-    <select id="f-ap" title="Appointment status"><option value="">Any appt status</option><option ${FS.ap==='Scheduled'?'selected':''}>Scheduled</option><option ${FS.ap==='Appointment Pending'?'selected':''}>Appointment Pending</option></select>
-    <select id="f-cat" title="Category"><option value="">All categories</option>${cats.map(c=>`<option ${FS.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-    <input type="date" id="f-from" value="${FS.from}" title="Order date from"><input type="date" id="f-to" value="${FS.to}" title="Order date to">
-    <button class="btn ghost" id="f-clear">Clear<span id="f-count"></span></button>
-    <span class="spacer"></span>
-    <div class="dropdown"><button class="btn" id="viewsbtn">Saved views ▾</button><div class="dd-menu" id="viewsmenu"></div></div>
-    <div class="dropdown"><button class="btn" id="colsbtn">Columns ▾</button><div class="dd-menu" id="colsmenu"></div></div>
-    <button class="btn" id="bulkbtn">Bulk remark</button>
-    <button class="btn primary" id="exportbtn">⬇ Export CSV</button>
-  </div>
-  <div id="scopebanner"></div>
+  ${filterBarHTML()}
   <div class="card" style="padding:0">
     <div class="scrollx"><table id="potable"></table></div>
     <div class="pager" id="pager" style="padding:0 14px 12px"></div>
   </div>`;
-  // Same wiring as the Dashboard, so a filter set on one tab holds on the other.
-  wireFilterBar(applyFilters);
+  // Same component as the Dashboard, scoped to this view's own controls.
+  wireFilterBar($('#view-pos'), applyFilters);
+  syncFilterBars();
   paintScopeBanner();
   $('#exportbtn').addEventListener('click', exportCSV);
   $('#bulkbtn').addEventListener('click', ()=>{
@@ -965,19 +991,8 @@ function renderPOTable(){
   $('#pnext')?.addEventListener('click', ()=>{PAGE++; renderPOTable();});
   $$('#pager button[data-p]').forEach(b=>b.addEventListener('click', ()=>{PAGE=+b.dataset.p; renderPOTable();}));
 }
-function syncFilters(){
-  const m={'f-q':'q','f-oid':'oid','f-wh':'wh','f-plat':'plat','f-ch':'ch','f-ap':'ap','f-apd':'apd','f-cat':'cat','f-from':'from','f-to':'to'};
-  Object.entries(m).forEach(([id,k])=>{ const el=$('#'+id); if(el) el.value=FS[k]; });
-  paintFilterCount();
-}
 // Filters live above a paged table, so it is easy to forget one is on and
 // read a filtered total as the whole picture. Show the count on the button.
-function paintFilterCount(){
-  const el=$('#f-count'); if(!el) return;
-  const n=Object.values(FS).filter(v=>v!=='').length;
-  el.textContent = n ? ` (${n})` : '';
-  const btn=$('#f-clear'); if(btn) btn.classList.toggle('primary', n>0);
-}
 function exportCSV(){
   const rows = [['PO Number','Warehouse','Platform','Channel','PO Date','Appointment','Appt Status','Age (days)','Item Code','Item Name','Category','Qty','MRP','PO Value','Remark']];
   filteredOrders().forEach(o=>o.lines.forEach(l=>rows.push([o.orderId,o.wh,o.platform,o.channel,o.orderDate,o.apptDate||'',o.apStatus,o.age,l.item,l.itemName,l.category,l.qty,l.mrp,l.value,REMARKS[o.orderId]||''])));
