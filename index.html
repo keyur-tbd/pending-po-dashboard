@@ -54,6 +54,27 @@ body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--
 .datastamp.stale{color:var(--warn,#b06a00);border-color:var(--warn,#b06a00)}
 .datastamp.stale .dot{background:var(--warn,#b06a00)}
 #refreshbtn.spinning svg{animation:spin .8s linear infinite}
+.ms{position:relative;display:inline-block}
+.ms-btn{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--border);
+  border-radius:8px;background:var(--surface-1);color:var(--ink);font-size:12.5px;cursor:pointer;white-space:nowrap;max-width:210px}
+.ms-btn:hover{border-color:var(--accent)}
+.ms-btn.on{border-color:var(--accent);color:var(--accent)}
+.ms-btn .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-btn .car{opacity:.55;font-size:10px;flex:none}
+.ms-pop{position:absolute;z-index:60;top:36px;left:0;min-width:230px;max-width:320px;
+  background:var(--surface-1);border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18);padding:8px;display:none}
+.ms-pop.open{display:block}
+.ms-pop input.ms-search{width:100%;height:30px;margin-bottom:6px;font-size:12.5px;
+  border:1px solid var(--border);border-radius:7px;background:var(--surface-2);color:var(--ink);padding:0 8px}
+.ms-list{max-height:240px;overflow:auto}
+.ms-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;font-size:12.5px;cursor:pointer}
+.ms-row:hover{background:var(--surface-2)}
+.ms-row input{flex:none;cursor:pointer}
+.ms-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-foot{display:flex;gap:10px;padding:7px 6px 2px;border-top:1px solid var(--border);margin-top:6px;font-size:12px}
+.ms-foot a{color:var(--accent);cursor:pointer}
+.ms-empty{padding:10px 6px;color:var(--muted);font-size:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .gsearch{margin-left:auto;position:relative}
 .gsearch input{width:280px;padding:7px 12px 7px 32px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--ink);font-size:13px;outline:none}
@@ -708,27 +729,51 @@ const kpi = (label, val, sub, opts={}) => `
    One markup builder and one wiring function, used by the Dashboard and the
    Pending POs view. Two copies of this would drift apart within a week.
    -------------------------------------------------------------------------- */
+const FILTER_DEFS = [
+  ['wh',   'Warehouse',  'All warehouses'],
+  ['plat', 'Platform',   'All platforms'],
+  ['ch',   'Channel',    'All channels'],
+  ['cat',  'Category',   'All categories'],
+  ['apd',  'Appt date',  'Any appt date'],
+  ['ap',   'Appt status','Any appt status'],
+];
+
+/* Button label: the selection itself when it is short enough to read, a count
+   when it is not. "Blinkit" beats "Platform (1)"; "Platform (7)" beats seven
+   names crushed into an ellipsis. */
+function msLabel(key, placeholder){
+  const v = FS[key];
+  if (!v.length) return placeholder;
+  if (v.length === 1) return v[0];
+  if (v.length === 2 && v.join(', ').length <= 24) return v.join(', ');
+  return `${FILTER_DEFS.find(d=>d[0]===key)[1]} (${v.length})`;
+}
+
 function filterBarHTML(){
-  const whs   = [...new Set(ORDERS.map(o=>o.wh))].filter(Boolean).sort();
-  const plats = [...new Set(ORDERS.map(o=>o.platform))].filter(Boolean).sort();
-  const chans = [...new Set(ORDERS.map(o=>o.channel))].filter(Boolean).sort();
-  const cats  = [...new Set(DATA.poLines.map(l=>l.category))].filter(Boolean).sort();
-  const oids  = [...new Set(ORDERS.map(o=>o.orderId))].sort();
-  const apds  = [...new Set(ORDERS.map(o=>o.apptDate).filter(Boolean))]
-                .sort((a,b)=>(pDMY(a)||0)-(pDMY(b)||0));
-  const opt = (list, cur) => list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');
+  // Every list is narrowed by the OTHER active filters, so choosing
+  // Platform = Blinkit leaves only Blinkit's channels in the Channel dropdown.
   const uid = 'oid'+Math.random().toString(36).slice(2,8);   // datalist ids must be unique
+  const oids = optionsFor('oid');
+  const ms = FILTER_DEFS.map(([k,label,ph]) => {
+    const avail = optionsFor(k);
+    const total = k === 'cat'
+      ? new Set(DATA.poLines.map(l=>l.category).filter(Boolean)).size
+      : new Set(ORDERS.map(o => k==='wh'?o.wh : k==='plat'?o.platform : k==='ch'?o.channel
+                : k==='apd'?(o.apptDate||'Appointment Pending') : o.apStatus).filter(Boolean)).size;
+    const narrowed = avail.length < total ? ` (${avail.length} of ${total})` : '';
+    return `<div class="ms" data-ms="${k}" data-ph="${esc(ph)}">
+      <button type="button" class="ms-btn ${FS[k].length?'on':''}" title="${esc(label)}${esc(narrowed)}">
+        <span class="lbl">${esc(msLabel(k, ph))}</span><span class="car">▾</span>
+      </button>
+      <div class="ms-pop"></div>
+    </div>`;
+  }).join('');
   return `
   <div class="toolbar">
     <input type="text" data-f="q" placeholder="Search PO / item / channel…" style="width:180px" value="${esc(FS.q)}">
     <input type="text" data-f="oid" list="${uid}" placeholder="Order ID" style="width:125px" value="${esc(FS.oid)}" title="Order ID — type to match part of it">
     <datalist id="${uid}">${oids.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
-    <select data-f="wh"   title="Warehouse"><option value="">All warehouses</option>${opt(whs, FS.wh)}</select>
-    <select data-f="plat" title="Platform"><option value="">All platforms</option>${opt(plats, FS.plat)}</select>
-    <select data-f="ch"   title="Channel"><option value="">All channels</option>${opt(chans, FS.ch)}</select>
-    <select data-f="cat"  title="Category"><option value="">All categories</option>${opt(cats, FS.cat)}</select>
-    <select data-f="apd"  title="Appointment date"><option value="">Any appt date</option><option ${FS.apd==='Appointment Pending'?'selected':''}>Appointment Pending</option>${opt(apds, FS.apd)}</select>
-    <select data-f="ap"   title="Appointment status"><option value="">Any appt status</option>${opt(['Scheduled','Appointment Pending'], FS.ap)}</select>
+    ${ms}
     <input type="date" data-f="from" value="${FS.from}" title="Order date from">
     <input type="date" data-f="to"   value="${FS.to}"   title="Order date to">
     <button class="btn ghost" data-f-clear>Clear<span data-f-count></span></button>
@@ -736,7 +781,80 @@ function filterBarHTML(){
   <div class="scopebanner"></div>`;
 }
 
-const TEXT_FILTERS = new Set(['q','oid']);
+/* Panel contents are built on open, not on render -- so the list always
+   reflects the filters as they stand right now, including ones changed while
+   this panel was shut. */
+function msPanelHTML(key, query){
+  const avail = optionsFor(key);
+  const sel = FS[key];
+  // Selected values that the other filters have made unreachable still show,
+  // otherwise there would be no way to untick them.
+  const all = [...new Set([...sel, ...avail])];
+  const q = (query||'').toLowerCase();
+  const shown = q ? all.filter(v => v.toLowerCase().includes(q)) : all;
+  const searchable = all.length > 8;
+  return `
+    ${searchable ? `<input class="ms-search" placeholder="Search ${esc(key==='ch'?'channels':'options')}…" value="${esc(query||'')}">` : ''}
+    <div class="ms-list">
+      ${shown.length ? shown.map(v => `
+        <label class="ms-row">
+          <input type="checkbox" value="${esc(v)}" ${sel.includes(v)?'checked':''} ${avail.includes(v)?'':'data-stale="1"'}>
+          <span${avail.includes(v)?'':' style="opacity:.5"'}>${esc(v)}</span>
+        </label>`).join('') : '<div class="ms-empty">Nothing matches</div>'}
+    </div>
+    <div class="ms-foot"><a data-ms-all>Select all</a><a data-ms-none>Clear</a></div>`;
+}
+
+function wireMultiSelect(root, onChange){
+  root.querySelectorAll('.ms').forEach(ms => {
+    const key = ms.dataset.ms;
+    const btn = ms.querySelector('.ms-btn');
+    const pop = ms.querySelector('.ms-pop');
+
+    const paint = (query) => {
+      pop.innerHTML = msPanelHTML(key, query);
+      const search = pop.querySelector('.ms-search');
+      if (search){
+        search.addEventListener('input', e => {
+          const val = e.target.value;
+          paint(val);
+          const box = pop.querySelector('.ms-search');
+          if (box){ box.focus(); box.setSelectionRange(val.length, val.length); }
+        });
+      }
+      pop.querySelectorAll('.ms-list input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const v = cb.value;
+          FS[key] = cb.checked ? [...FS[key], v] : FS[key].filter(x => x !== v);
+          onChange(key);
+        });
+      });
+      pop.querySelector('[data-ms-all]')?.addEventListener('click', () => {
+        FS[key] = [...new Set([...FS[key], ...optionsFor(key)])]; onChange(key);
+      });
+      pop.querySelector('[data-ms-none]')?.addEventListener('click', () => {
+        FS[key] = []; onChange(key);
+      });
+    };
+
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const wasOpen = pop.classList.contains('open');
+      document.querySelectorAll('.ms-pop.open').forEach(x => x.classList.remove('open'));
+      if (!wasOpen){ paint(''); pop.classList.add('open'); pop.querySelector('.ms-search')?.focus(); }
+    });
+    // Clicks inside the panel must not close it -- ticking three boxes in a row
+    // is the whole point of multi-select.
+    pop.addEventListener('click', e => e.stopPropagation());
+  });
+}
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.ms-pop.open').forEach(x => x.classList.remove('open'));
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.ms-pop.open').forEach(x => x.classList.remove('open'));
+});
 
 /* Wire one bar, scoped to its own view. */
 function wireFilterBar(root, onChange){
@@ -744,17 +862,24 @@ function wireFilterBar(root, onChange){
   root.querySelectorAll('[data-f]').forEach(el => {
     const k = el.dataset.f;
     el.addEventListener(TEXT_FILTERS.has(k) ? 'input' : 'change', e => {
-      FS[k] = e.target.value; onChange();
+      FS[k] = e.target.value; onChange(k);
     });
   });
+  wireMultiSelect(root, onChange);
   const c = root.querySelector('[data-f-clear]');
-  if (c) c.addEventListener('click', () => { Object.keys(FS).forEach(k=>FS[k]=''); onChange(); });
+  if (c) c.addEventListener('click', () => { clearFS(); onChange(); });
 }
 
 /* Push FS back onto every bar, so the two views never disagree. */
 function syncFilterBars(){
   document.querySelectorAll('[data-f]').forEach(el => { el.value = FS[el.dataset.f] ?? ''; });
-  const n = Object.values(FS).filter(v => v !== '').length;
+  document.querySelectorAll('.ms').forEach(ms => {
+    const k = ms.dataset.ms;
+    const btn = ms.querySelector('.ms-btn');
+    btn.querySelector('.lbl').textContent = msLabel(k, ms.dataset.ph);
+    btn.classList.toggle('on', FS[k].length > 0);
+  });
+  const n = Object.entries(FS).filter(([k,v]) => isMulti(k) ? v.length : v !== '').length;
   document.querySelectorAll('[data-f-count]').forEach(el => { el.textContent = n ? ` (${n})` : ''; });
   document.querySelectorAll('[data-f-clear]').forEach(el => el.classList.toggle('primary', n > 0));
 }
@@ -763,29 +888,39 @@ function syncFilterBars(){
    real risk of putting filters on an exec dashboard. When a filter is on, say
    so loudly and carry the denominator. */
 function paintScopeBanner(){
-  const active = Object.entries(FS).filter(([,v]) => v !== '');
+  const active = Object.entries(FS).filter(([k,v]) => isMulti(k) ? v.length : v !== '');
   const LABEL = {oid:'Order ID', wh:'Warehouse', ch:'Channel', plat:'Platform',
                  apd:'Appt date', ap:'Appt status', cat:'Category',
                  from:'From', to:'To', q:'Search'};
   const total = ORDERS.length;
   const shown = SCOPE_ORDERS ? SCOPE_ORDERS.length : total;
-  const html = !active.length ? '' :
+  const LBL2 = {oid:'Order ID', wh:'Warehouse', ch:'Channel', plat:'Platform',
+                apd:'Appt date', ap:'Appt status', cat:'Category'};
+  const pruned = LAST_PRUNED.length
+    ? `<div style="margin-top:6px;color:var(--muted)">Cleared ${LAST_PRUNED.map(([k,v])=>
+        `${LBL2[k]||k} <b>${esc(v)}</b>`).join(', ')} — no longer available under the current selection.</div>`
+    : '';
+  const html = !active.length && !LAST_PRUNED.length ? '' :
     `<div class="note" style="border-left:3px solid var(--warn);margin-bottom:12px">
       <b>Filtered view — not the full PO book.</b>
       Showing <b>${fmtIN(shown)}</b> of ${fmtIN(total)} POs.
-      ${active.map(([k,v])=>`${LABEL[k]||k}: <b>${esc(v)}</b>`).join(' &middot; ')}
-      <a href="#" data-scope-clear style="color:var(--accent);margin-left:8px">Clear all</a></div>`;
+      ${active.map(([k,v])=>{
+        const txt = Array.isArray(v) ? (v.length <= 3 ? v.join(' or ') : `${v.length} selected`) : v;
+        return `${LABEL[k]||k}: <b>${esc(txt)}</b>`;
+      }).join(' &middot; ')}
+      <a href="#" data-scope-clear style="color:var(--accent);margin-left:8px">Clear all</a>${pruned}</div>`;
   document.querySelectorAll('.scopebanner').forEach(el => { el.innerHTML = html; });
   document.querySelectorAll('[data-scope-clear]').forEach(a =>
     a.addEventListener('click', e => {
-      e.preventDefault(); Object.keys(FS).forEach(k=>FS[k]=''); applyFilters();
+      e.preventDefault(); clearFS(); applyFilters();
     }));
 }
 
 /* Any filter change rescopes the derived figures, then repaints. */
-function applyFilters(){
-  const anyActive = Object.values(FS).some(v => v !== '');
-  recompute(anyActive ? filteredOrders() : null);
+let LAST_PRUNED = [];
+function applyFilters(changedKey){
+  LAST_PRUNED = pruneFilters(changedKey);
+  recompute(fsActive() ? filteredOrders() : null);
   const cur = document.querySelector('.view.active')?.id;
   if (cur === 'view-dashboard') renderDashboard();
   else if (cur === 'view-pos') { PAGE = 1; renderPOs(); }
@@ -875,7 +1010,7 @@ function renderDashboard(){
   $('#ch-cat').append(barSVG({data:catData, tipRows:d=>`<div class="r"><span>Value</span><span>${fmtC(d.value)}</span></div><div class="r"><span>Qty</span><span>${fmtIN(d.q)} units</span></div>`}));
   $('#qa-export')?.addEventListener('click', exportCSV);
   wireFilterBar($('#view-dashboard'), applyFilters); syncFilterBars(); paintScopeBanner();
-  $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); FS.ap='Appointment Pending'; syncFilterBars(); renderPOTable(); });
+  $('#qa-pending')?.addEventListener('click', ()=>{ goView('pos'); clearFS(); FS.ap=['Appointment Pending']; applyFilters('ap'); });
 }
 
 /* ============ PENDING PO MANAGEMENT ============ */
@@ -888,29 +1023,104 @@ const COLS = [
 // ch   = raw Channel value from the sheet, e.g. BLINKIT_MUM (distinct from
 //        plat, which is the rolled-up platform: Blinkit, Swiggy, ...)
 // apd  = a specific appointment date, or the Appointment Pending bucket
-const FS = {q:'', oid:'', wh:'', plat:'', ch:'', ap:'', apd:'', cat:'', from:'', to:''};
+/* Six categorical filters hold ARRAYS (empty = no restriction). q, oid, from
+   and to stay scalar. MULTI is the single source of truth for which is which;
+   every helper below branches on it rather than guessing from the value. */
+const MULTI = ['wh','plat','ch','cat','apd','ap'];
+const TEXT_FILTERS = new Set(['q','oid']);
+const isMulti = k => MULTI.includes(k);
+const blankFS = () => ({q:'', oid:'', wh:[], plat:[], ch:[], cat:[], apd:[], ap:[], from:'', to:''});
+const FS = blankFS();
+const fsActive = () => Object.entries(FS).some(([k,v]) => isMulti(k) ? v.length : v !== '');
+const clearFS = () => Object.assign(FS, blankFS());
+/* {...FS} copies array REFERENCES, so a saved view would keep changing as the
+   live filters changed. Copy the arrays themselves. */
+const cloneFS = f => { const o = {...f}; MULTI.forEach(k => o[k] = [...(f[k]||[])]); return o; };
 let SORT = {k:'value', dir:-1}, PAGE = 1, PER = 15, SEL = new Set();
 let visCols = new Set(COLS.filter(c=>c[2]).map(c=>c[0]));
-let savedViews = [{name:'High value first', fs:{...FS}, sort:{k:'value',dir:-1}},
-                  {name:'Awaiting appointment', fs:{...FS, ap:'Appointment Pending'}, sort:{k:'age',dir:-1}}];
+let savedViews = [{name:'High value first', fs:blankFS(), sort:{k:'value',dir:-1}},
+                  {name:'Awaiting appointment', fs:{...blankFS(), ap:['Appointment Pending']}, sort:{k:'age',dir:-1}}];
 
-function filteredOrders(){
-  return ORDERS.filter(o => {
-    if (FS.q){ const q=FS.q.toLowerCase(); if(!(o.orderId.toLowerCase().includes(q)||o.channel.toLowerCase().includes(q)||o.lines.some(l=>l.itemName.toLowerCase().includes(q)||l.item.toLowerCase().includes(q)))) return false; }
-    if (FS.oid && !o.orderId.toLowerCase().includes(FS.oid.toLowerCase())) return false;
-    if (FS.wh && o.wh!==FS.wh) return false;
-    if (FS.plat && o.platform!==FS.plat) return false;
-    if (FS.ch && o.channel!==FS.ch) return false;
-    // An appointment-date filter of 'Appointment Pending' must match POs with
-    // no date at all -- not POs whose date happens to equal that string.
-    if (FS.apd){ const key = o.apptDate || 'Appointment Pending'; if (key!==FS.apd) return false; }
-    if (FS.ap && o.apStatus!==FS.ap) return false;
-    // A PO can span categories, so match if ANY line is in the chosen one.
-    if (FS.cat && !o.lines.some(l=>l.category===FS.cat)) return false;
-    if (FS.from && o.oDate < new Date(FS.from)) return false;
-    if (FS.to && o.oDate > new Date(FS.to)) return false;
-    return true;
+/* One predicate, taking the filter set as an argument. The cascading option
+   lists need to evaluate "everything except this one filter", and a second
+   copy of the matching logic would drift from this one within a week. */
+function matchOrder(o, F){
+  if (F.q){ const q=F.q.toLowerCase(); if(!(o.orderId.toLowerCase().includes(q)||o.channel.toLowerCase().includes(q)||o.lines.some(l=>l.itemName.toLowerCase().includes(q)||l.item.toLowerCase().includes(q)))) return false; }
+  if (F.oid && !o.orderId.toLowerCase().includes(F.oid.toLowerCase())) return false;
+  // An empty array means "no restriction". Selecting several values is an OR
+  // within that filter, and an AND across filters -- which is what people
+  // expect from faceted filtering.
+  if (F.wh.length   && !F.wh.includes(o.wh)) return false;
+  if (F.plat.length && !F.plat.includes(o.platform)) return false;
+  if (F.ch.length   && !F.ch.includes(o.channel)) return false;
+  // 'Appointment Pending' must match POs with no date at all -- not POs whose
+  // date happens to equal that string.
+  if (F.apd.length){ const key = o.apptDate || 'Appointment Pending'; if (!F.apd.includes(key)) return false; }
+  if (F.ap.length   && !F.ap.includes(o.apStatus)) return false;
+  // A PO can span categories, so match if ANY line is in ANY chosen category.
+  if (F.cat.length  && !o.lines.some(l=>F.cat.includes(l.category))) return false;
+  if (F.from && o.oDate < new Date(F.from)) return false;
+  if (F.to && o.oDate > new Date(F.to)) return false;
+  return true;
+}
+
+function filteredOrders(){ return ORDERS.filter(o => matchOrder(o, FS)); }
+
+/* Orders matching every filter EXCEPT `skip`. This is what makes the dropdowns
+   cascade: the Channel list is built from orders that satisfy Platform, WH and
+   the rest, but ignore whatever Channel is currently set. Without the skip, the
+   selected value would be the only option its own list could ever contain. */
+function ordersExcept(skip){
+  const F = Object.assign({}, FS, {[skip]: isMulti(skip) ? [] : ''});
+  return ORDERS.filter(o => matchOrder(o, F));
+}
+
+/* Option list for one filter, narrowed by all the others. */
+function optionsFor(key){
+  const src = ordersExcept(key);
+  let vals;
+  if (key === 'cat') vals = src.flatMap(o => o.lines.map(l => l.category));
+  else if (key === 'apd') vals = src.map(o => o.apptDate || 'Appointment Pending');
+  else if (key === 'ap') vals = src.map(o => o.apStatus);
+  else if (key === 'oid') vals = src.map(o => o.orderId);
+  else if (key === 'wh') vals = src.map(o => o.wh);
+  else if (key === 'plat') vals = src.map(o => o.platform);
+  else if (key === 'ch') vals = src.map(o => o.channel);
+  else return [];
+  const out = [...new Set(vals.filter(Boolean))];
+  if (key === 'apd') {
+    // chronological, with the Pending bucket pinned first
+    const pend = out.includes('Appointment Pending');
+    const dates = out.filter(v => v !== 'Appointment Pending')
+                     .sort((a,b) => (pDMY(a)||0) - (pDMY(b)||0));
+    return pend ? ['Appointment Pending', ...dates] : dates;
+  }
+  return out.sort();
+}
+
+/* After a change, a previously chosen value can become impossible -- pick
+   Platform=Blinkit while Channel=SWIGGY_BLR is set and the result is zero rows
+   with no explanation.
+
+   `keep` is the filter the user just touched, and it is never pruned. Without
+   it the outcome is arbitrary: with Platform=Blinkit and Channel=SWIGGY_BLR
+   BOTH are individually impossible, so whichever the loop reaches first gets
+   cleared. Setting Platform would silently clear Platform and leave the stale
+   Channel -- the opposite of what was asked for. */
+function pruneFilters(keep){
+  const dropped = [];
+  MULTI.forEach(k => {
+    if (k === keep || !FS[k].length) return;
+    const avail = optionsFor(k);
+    // Keep the values still reachable; report the ones that are not. Dropping
+    // the whole filter would throw away valid selections alongside dead ones.
+    const kept = FS[k].filter(v => avail.includes(v));
+    if (kept.length !== FS[k].length) {
+      FS[k].filter(v => !avail.includes(v)).forEach(v => dropped.push([k, v]));
+      FS[k] = kept;
+    }
   });
+  return dropped;
 }
 function renderPOs(){
   const v = $('#view-pos');
@@ -940,8 +1150,8 @@ function renderPOs(){
   const renderViews = () => { vm.innerHTML = savedViews.map((sv,i)=>`<label data-i="${i}">▸ ${esc(sv.name)}</label>`).join('') +
     `<label id="savecur" style="border-top:1px solid var(--grid);color:var(--accent)">＋ Save current view…</label>`;
     $$('#viewsmenu label[data-i]').forEach(l=>l.addEventListener('click', ()=>{ const sv=savedViews[+l.dataset.i];
-      Object.assign(FS, sv.fs); SORT={...sv.sort}; PAGE=1; renderPOs(); renderPOTable(); }));
-    $('#savecur').addEventListener('click', ()=>{ const n=prompt('View name:'); if(n){ savedViews.push({name:n, fs:{...FS}, sort:{...SORT}}); renderViews(); alertToast('View saved for this session.'); }});
+      Object.assign(FS, cloneFS(sv.fs)); SORT={...sv.sort}; PAGE=1; applyFilters(); }));
+    $('#savecur').addEventListener('click', ()=>{ const n=prompt('View name:'); if(n){ savedViews.push({name:n, fs:cloneFS(FS), sort:{...SORT}}); renderViews(); alertToast('View saved for this session.'); }});
   }; renderViews();
   $('#viewsbtn').addEventListener('click', e=>{e.stopPropagation(); toggleMenu(vm);});
   renderPOTable();
