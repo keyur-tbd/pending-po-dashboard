@@ -192,6 +192,7 @@ svg text{font-family:inherit}
     <div class="sect">Operations</div>
     <a data-view="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</a>
     <a data-view="pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="4.5" cy="18" r="1.5"/></svg>Pending POs<span class="pill" id="pill-pos"></span></a>
+    <a data-view="report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>Report view</a>
     <a data-view="billing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg>Billing status</a>
     <div class="sect">Reference</div>
     <a data-view="masters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Masters</a>
@@ -229,6 +230,7 @@ svg text{font-family:inherit}
     <section class="view" id="view-podetail"></section>
 
     <!-- ============ BILLING ============ -->
+    <section class="view" id="view-report"></section>
     <section class="view" id="view-billing"></section>
 
     <!-- ============ MASTERS ============ -->
@@ -924,6 +926,7 @@ function applyFilters(changedKey){
   const cur = document.querySelector('.view.active')?.id;
   if (cur === 'view-dashboard') renderDashboard();
   else if (cur === 'view-pos') { PAGE = 1; renderPOs(); }
+  else if (cur === 'view-report') renderReport();
   else { syncFilterBars(); paintScopeBanner(); }
 }
 
@@ -1281,6 +1284,109 @@ function renderPODetail(){
   $$('.polink2').forEach(a=>a.addEventListener('click', e=>{e.preventDefault(); openPO(a.dataset.id);}));
 }
 
+/* ============ REPORT VIEW ============ */
+/* Three cross-tabs, all reading the same pivots the KPIs use, so a number here
+   can never disagree with the Dashboard. `P` is rebuilt by recompute() on every
+   filter change, which is why this view needs no filter logic of its own. */
+let RPT_METRIC = 'value';   // 'value' | 'count'
+
+const RPT_TABS = [
+  ['wh',          'WH Location × Platform',      'Warehouse'],
+  ['poDate',      'PO Date × Platform',          'PO date'],
+  ['appointment', 'Appointment Date × Platform', 'Appointment date'],
+];
+
+/* Row order differs by dimension: warehouses alphabetically, dates
+   chronologically (string sort would put 2-08 after 15-08), and the
+   Appointment Pending bucket pinned to the top where it gets noticed. */
+function rptRows(dim){
+  const keys = Object.keys(P[dim].counts).filter(k => k !== 'Grand Total');
+  if (dim === 'wh') return keys.sort();
+  const pend = keys.includes('Appointment Pending') ? ['Appointment Pending'] : [];
+  return pend.concat(keys.filter(k => k !== 'Appointment Pending')
+                         .sort((a,b) => (pDMY(a)||0) - (pDMY(b)||0)));
+}
+
+/* Only platforms that actually appear, so a filtered view isn't padded with
+   empty columns. */
+function rptCols(dim){
+  const gt = P[dim].counts['Grand Total'] || {};
+  return PLATS.filter(pl => (gt[pl] || 0) > 0);
+}
+
+function rptCell(v){
+  if (!v) return '<td class="num" style="color:var(--muted)">—</td>';
+  return `<td class="num">${RPT_METRIC === 'value' ? fmtC(v) : fmtIN(v)}</td>`;
+}
+
+function rptTableHTML(dim, title, rowLabel){
+  const rows = rptRows(dim), cols = rptCols(dim);
+  const src = RPT_METRIC === 'value' ? P[dim].values : P[dim].counts;
+  const gt = src['Grand Total'] || {};
+  if (!rows.length) return `<div class="card" style="margin-bottom:14px"><h3>${esc(title)}</h3>
+    <div class="sub">No rows under the current filters.</div></div>`;
+  return `
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><h3>${esc(title)}</h3><div class="sub">${rows.length} ${esc(rowLabel.toLowerCase())}(s) × ${cols.length} platform(s) · ${RPT_METRIC === 'value' ? 'PO value' : 'PO count'}</div></div>
+      <button class="btn ghost" data-rpt-csv="${dim}">⬇ CSV</button>
+    </div>
+    <div class="scrollx"><table>
+      <thead><tr><th>${esc(rowLabel)}</th>${cols.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Total</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>
+          <td>${esc(r)}</td>
+          ${cols.map(c => rptCell(src[r]?.[c] || 0)).join('')}
+          <td class="num"><b>${RPT_METRIC === 'value' ? fmtC(src[r]?.total || 0) : fmtIN(src[r]?.total || 0)}</b></td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot><tr>
+        <th>Grand total</th>
+        ${cols.map(c => `<th class="num">${RPT_METRIC === 'value' ? fmtC(gt[c] || 0) : fmtIN(gt[c] || 0)}</th>`).join('')}
+        <th class="num">${RPT_METRIC === 'value' ? fmtC(gt.total || 0) : fmtIN(gt.total || 0)}</th>
+      </tr></tfoot>
+    </table></div>
+  </div>`;
+}
+
+function rptCSV(dim){
+  const rows = rptRows(dim), cols = rptCols(dim);
+  const src = RPT_METRIC === 'value' ? P[dim].values : P[dim].counts;
+  const gt = src['Grand Total'] || {};
+  const label = RPT_TABS.find(t => t[0] === dim)[2];
+  const esc2 = v => `"${String(v).replace(/"/g,'""')}"`;
+  const lines = [[label, ...cols, 'Total'].map(esc2).join(',')];
+  rows.forEach(r => lines.push([r, ...cols.map(c => src[r]?.[c] || 0), src[r]?.total || 0].map(esc2).join(',')));
+  lines.push(['Grand total', ...cols.map(c => gt[c] || 0), gt.total || 0].map(esc2).join(','));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `report_${dim}_x_platform_${RPT_METRIC}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function renderReport(){
+  const v = $('#view-report');
+  v.innerHTML = `
+  ${filterBarHTML()}
+  <div class="toolbar">
+    <span style="font-size:12.5px;color:var(--muted)">Show</span>
+    <button class="btn ${RPT_METRIC==='value'?'primary':'ghost'}" data-rpt-metric="value">PO value</button>
+    <button class="btn ${RPT_METRIC==='count'?'primary':'ghost'}" data-rpt-metric="count">PO count</button>
+    <span class="spacer"></span>
+    <span style="font-size:12px;color:var(--muted)">Counts are distinct POs, not lines</span>
+  </div>
+  ${RPT_TABS.map(([dim,title,label]) => rptTableHTML(dim,title,label)).join('')}`;
+
+  wireFilterBar($('#view-report'), applyFilters);
+  syncFilterBars();
+  paintScopeBanner();
+  v.querySelectorAll('[data-rpt-metric]').forEach(b =>
+    b.addEventListener('click', () => { RPT_METRIC = b.dataset.rptMetric; renderReport(); }));
+  v.querySelectorAll('[data-rpt-csv]').forEach(b =>
+    b.addEventListener('click', () => rptCSV(b.dataset.rptCsv)));
+}
+
 /* ============ BILLING / FILL RATE ============ */
 function renderBilling(){
   const v = $('#view-billing'); const F = DATA.fillRate;
@@ -1421,6 +1527,7 @@ function renderAbout(){
 /* ============ shell: routing, search, alerts, theme ============ */
 const TITLES = {dashboard:['Pending PO Dashboard','Home / Dashboard'], pos:['Pending PO Management','Home / Pending POs'],
   podetail:['PO Details','Home / Pending POs / Details'], billing:['Billing Status — Dispatch vs Sales','Home / Billing'],
+  report:['Report View — cross-tabs by platform','Home / Report view'],
   masters:['Master Data','Home / Masters'], about:['Data Coverage & Quality','Home / Data coverage']};
 function goView(name){
   $$('.view').forEach(x=>x.classList.remove('active'));
@@ -1431,6 +1538,7 @@ function goView(name){
   // Repaint on entry: the scope may have changed while another tab was open.
   else if(name==='dashboard') renderDashboard();
   else if(name==='pos') renderPOs();
+  else if(name==='report') renderReport();
   $('#content').scrollTop = 0;
 }
 document.addEventListener('click', e=>{
@@ -1471,7 +1579,7 @@ function showTipToast(msg){ const t=document.createElement('div');
   t.textContent=msg; document.body.append(t); setTimeout(()=>t.remove(), 2600); }
 
 /* ============ boot ============ */
-renderDashboard(); renderPOs(); renderBilling(); renderMasters(); renderAbout(); renderPODetail();
+renderDashboard(); renderPOs(); renderReport(); renderBilling(); renderMasters(); renderAbout(); renderPODetail();
 
 </script>
 </body>
