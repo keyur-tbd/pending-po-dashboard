@@ -1128,6 +1128,13 @@ function renderPOs(){
   v.innerHTML = `
   <div class="note">Line-level workbench over <b>${esc(DATA._source?.tabs?.poLines || "the PO lines tab")}</b> — ${fmtIN(ORDERS.length)} POs / ${fmtIN(DATA.poLines.length)} lines across ${whs.length} warehouse(s). Filters below apply to the table, the CSV export and the count shown under it.</div>
   ${filterBarHTML()}
+  <div class="toolbar">
+    <span class="spacer"></span>
+    <div class="dropdown"><button class="btn" id="viewsbtn">Saved views ▾</button><div class="dd-menu" id="viewsmenu"></div></div>
+    <div class="dropdown"><button class="btn" id="colsbtn">Columns ▾</button><div class="dd-menu" id="colsmenu"></div></div>
+    <button class="btn" id="bulkbtn">Bulk remark</button>
+    <button class="btn primary" id="exportbtn">⬇ Export CSV</button>
+  </div>
   <div class="card" style="padding:0">
     <div class="scrollx"><table id="potable"></table></div>
     <div class="pager" id="pager" style="padding:0 14px 12px"></div>
